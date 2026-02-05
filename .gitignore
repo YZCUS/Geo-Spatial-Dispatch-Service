@@ -1,0 +1,29 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Build
+bin/
+dist/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go
+go.work
+coverage.out
+coverage.html
+
+# Env
+.env
+.env.local
+
+# Personal notes (not part of project)
+INTERVIEW_GUIDE.md
