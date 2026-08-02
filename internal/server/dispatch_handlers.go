@@ -2,11 +2,13 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
 	"github.com/YZCUS/geo-spatial-dispatch-service/internal/dispatch"
 	"github.com/YZCUS/geo-spatial-dispatch-service/internal/driver"
+	"github.com/YZCUS/geo-spatial-dispatch-service/internal/geospatial"
 )
 
 // DispatchRequestDTO is the request body for dispatch
@@ -43,6 +45,14 @@ func (s *Server) HandleDispatchRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return
 	}
+	if err := geospatial.ValidateCoordinates(req.Longitude, req.Latitude); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if req.RadiusKm < 0 {
+		http.Error(w, geospatial.ErrInvalidRadius.Error(), http.StatusBadRequest)
+		return
+	}
 
 	log.Printf("[Dispatch] Request received: lon=%.4f lat=%.4f radius=%.2fkm",
 		req.Longitude, req.Latitude, req.RadiusKm)
@@ -57,8 +67,10 @@ func (s *Server) HandleDispatchRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if result.Success {
 		w.WriteHeader(http.StatusOK)
-	} else {
+	} else if result.Error == dispatch.ErrNoDriversAvailable.Error() {
 		w.WriteHeader(http.StatusNotFound)
+	} else {
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 	json.NewEncoder(w).Encode(result)
 }
@@ -112,7 +124,7 @@ func (s *Server) handleSetDriverStatus(w http.ResponseWriter, r *http.Request) {
 	err := s.driverService.SetStatus(r.Context(), req.DriverID, status)
 	if err != nil {
 		log.Printf("[Driver] Error setting status: %v", err)
-		if err == driver.ErrInvalidStatus {
+		if errors.Is(err, driver.ErrInvalidStatus) || errors.Is(err, driver.ErrDriverNotFound) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -120,6 +132,7 @@ func (s *Server) handleSetDriverStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 }
@@ -144,16 +157,28 @@ func (s *Server) HandleDriverLocation(w http.ResponseWriter, r *http.Request) {
 	err := s.dispatcher.UpdateDriverLocation(r.Context(), req.DriverID, req.Longitude, req.Latitude)
 	if err != nil {
 		log.Printf("[Driver] Error updating location: %v", err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if errors.Is(err, geospatial.ErrInvalidCoordinates) ||
+			errors.Is(err, geospatial.ErrInvalidLocationID) ||
+			errors.Is(err, driver.ErrDriverNotFound) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "updated"})
 }
 
 // HandleDispatchStats returns dispatch statistics
 func (s *Server) HandleDispatchStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	stats, err := s.dispatcher.GetStats(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)

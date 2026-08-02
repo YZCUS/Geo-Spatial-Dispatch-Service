@@ -17,6 +17,9 @@ var (
 // LocationUpdateHandler is called when a driver location is updated
 type LocationUpdateHandler func(ctx context.Context, loc *LocationPayload) error
 
+// HeartbeatHandler is called when a driver heartbeat is received.
+type HeartbeatHandler func(ctx context.Context, driverID string) error
+
 // Hub maintains the set of active clients and broadcasts messages
 type Hub struct {
 	// Registered clients
@@ -31,7 +34,8 @@ type Hub struct {
 	broadcastLocation chan *LocationPayload
 
 	// Location update handler (to update geo service)
-	locationHandler LocationUpdateHandler
+	locationHandler  LocationUpdateHandler
+	heartbeatHandler HeartbeatHandler
 
 	// Mutex for thread-safe access
 	mu sync.RWMutex
@@ -53,7 +57,7 @@ type HubStats struct {
 }
 
 // NewHub creates a new Hub
-func NewHub(handler LocationUpdateHandler) *Hub {
+func NewHub(locationHandler LocationUpdateHandler, heartbeatHandler HeartbeatHandler) *Hub {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Hub{
 		drivers:           make(map[string]*Client),
@@ -61,7 +65,8 @@ func NewHub(handler LocationUpdateHandler) *Hub {
 		register:          make(chan *Client),
 		unregister:        make(chan *Client),
 		broadcastLocation: make(chan *LocationPayload, 256),
-		locationHandler:   handler,
+		locationHandler:   locationHandler,
+		heartbeatHandler:  heartbeatHandler,
 		ctx:               ctx,
 		cancel:            cancel,
 	}
@@ -92,10 +97,14 @@ func (h *Hub) Run() {
 		case location := <-h.broadcastLocation:
 			h.handleLocationBroadcast(location)
 			messagesThisSecond++
+			h.mu.Lock()
 			h.stats.TotalMessages++
+			h.mu.Unlock()
 
 		case <-ticker.C:
+			h.mu.Lock()
 			h.stats.MessagesPerSec = messagesThisSecond
+			h.mu.Unlock()
 			messagesThisSecond = 0
 		}
 	}
@@ -107,16 +116,17 @@ func (h *Hub) registerClient(client *Client) {
 	defer h.mu.Unlock()
 
 	if client.Type == ClientTypeDriver {
-		// Close existing connection if any
+		// Close an existing connection without allowing its later unregister
+		// event to remove this replacement.
 		if old, exists := h.drivers[client.ID]; exists {
-			close(old.send)
+			old.Close()
 		}
 		h.drivers[client.ID] = client
 		h.stats.TotalDrivers = len(h.drivers)
 		log.Printf("[Hub] Driver %s connected. Total drivers: %d", client.ID, h.stats.TotalDrivers)
 	} else {
 		if old, exists := h.riders[client.ID]; exists {
-			close(old.send)
+			old.Close()
 		}
 		h.riders[client.ID] = client
 		h.stats.TotalRiders = len(h.riders)
@@ -130,16 +140,16 @@ func (h *Hub) unregisterClient(client *Client) {
 	defer h.mu.Unlock()
 
 	if client.Type == ClientTypeDriver {
-		if _, exists := h.drivers[client.ID]; exists {
+		if current, exists := h.drivers[client.ID]; exists && current == client {
 			delete(h.drivers, client.ID)
-			close(client.send)
+			client.Close()
 			h.stats.TotalDrivers = len(h.drivers)
 			log.Printf("[Hub] Driver %s disconnected. Total drivers: %d", client.ID, h.stats.TotalDrivers)
 		}
 	} else {
-		if _, exists := h.riders[client.ID]; exists {
+		if current, exists := h.riders[client.ID]; exists && current == client {
 			delete(h.riders, client.ID)
-			close(client.send)
+			client.Close()
 			h.stats.TotalRiders = len(h.riders)
 			log.Printf("[Hub] Rider %s disconnected. Total riders: %d", client.ID, h.stats.TotalRiders)
 		}
@@ -148,13 +158,6 @@ func (h *Hub) unregisterClient(client *Client) {
 
 // handleLocationBroadcast broadcasts driver location to subscribed riders
 func (h *Hub) handleLocationBroadcast(location *LocationPayload) {
-	// Update geo service if handler is set
-	if h.locationHandler != nil {
-		if err := h.locationHandler(h.ctx, location); err != nil {
-			log.Printf("[Hub] Failed to update location in geo service: %v", err)
-		}
-	}
-
 	// Create the message to broadcast
 	payload, _ := json.Marshal(DriverLocationPayload{
 		DriverID:  location.DriverID,
@@ -169,6 +172,11 @@ func (h *Hub) handleLocationBroadcast(location *LocationPayload) {
 		Payload:   payload,
 		Timestamp: time.Now().UnixMilli(),
 	}
+	data, err := json.Marshal(msg)
+	if err != nil {
+		log.Printf("[Hub] Failed to encode location update: %v", err)
+		return
+	}
 
 	// Send to subscribed riders
 	h.mu.RLock()
@@ -176,7 +184,7 @@ func (h *Hub) handleLocationBroadcast(location *LocationPayload) {
 
 	for _, rider := range h.riders {
 		if rider.IsSubscribedTo(location.DriverID) {
-			if err := rider.Send(msg); err != nil {
+			if err := rider.SendBytes(data); err != nil {
 				log.Printf("[Hub] Failed to send to rider %s: %v", rider.ID, err)
 			}
 		}
@@ -189,19 +197,65 @@ func (h *Hub) closeAllClients() {
 	defer h.mu.Unlock()
 
 	for _, client := range h.drivers {
-		close(client.send)
+		client.Close()
 	}
 	for _, client := range h.riders {
-		close(client.send)
+		client.Close()
 	}
 
 	h.drivers = make(map[string]*Client)
 	h.riders = make(map[string]*Client)
+	h.stats.TotalDrivers = 0
+	h.stats.TotalRiders = 0
 }
 
 // Register adds a client to the hub
 func (h *Hub) Register(client *Client) {
-	h.register <- client
+	select {
+	case h.register <- client:
+	case <-h.ctx.Done():
+		client.Close()
+	}
+}
+
+// Unregister removes a client without blocking after the hub has stopped.
+func (h *Hub) Unregister(client *Client) {
+	select {
+	case h.unregister <- client:
+	case <-h.ctx.Done():
+		client.Close()
+	}
+}
+
+// PublishLocation persists a location before queueing it for fanout.
+// Persistence occurs in the caller's goroutine so one slow Redis request does
+// not block all hub registrations and broadcasts.
+func (h *Hub) PublishLocation(location *LocationPayload) error {
+	if h.locationHandler != nil {
+		if err := h.locationHandler(h.ctx, location); err != nil {
+			return err
+		}
+	}
+
+	select {
+	case h.broadcastLocation <- location:
+		return nil
+	case <-h.ctx.Done():
+		return ErrHubClosed
+	}
+}
+
+// HeartbeatDriver refreshes a connected driver's liveness state.
+func (h *Hub) HeartbeatDriver(driverID string) error {
+	if h.heartbeatHandler == nil {
+		return nil
+	}
+	select {
+	case <-h.ctx.Done():
+		return ErrHubClosed
+	default:
+		return h.heartbeatHandler(h.ctx, driverID)
+	}
 }
 
 // GetStats returns current hub statistics

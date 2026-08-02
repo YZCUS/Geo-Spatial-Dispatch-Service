@@ -14,7 +14,26 @@ var (
 	ErrNoDriversAvailable = errors.New("no drivers available")
 	ErrLockFailed         = errors.New("failed to acquire lock")
 	ErrLockNotHeld        = errors.New("lock not held")
+	ErrLockExpired        = errors.New("lock expired")
 )
+
+var unlockScript = redis.NewScript(`
+	local owner = redis.call('GET', KEYS[1])
+	if owner == ARGV[1] then
+		return redis.call('DEL', KEYS[1])
+	end
+	if not owner then
+		return -1
+	end
+	return 0
+`)
+
+var extendLockScript = redis.NewScript(`
+	if redis.call('GET', KEYS[1]) == ARGV[1] then
+		return redis.call('EXPIRE', KEYS[1], ARGV[2])
+	end
+	return 0
+`)
 
 // LockManager handles distributed locking for driver assignments
 type LockManager struct {
@@ -69,42 +88,33 @@ func (lm *LockManager) TryLock(ctx context.Context, driverID string, requestID s
 func (lm *LockManager) Unlock(ctx context.Context, driverID string, requestID string) error {
 	key := lm.lockKey(driverID)
 
-	// Use Lua script to ensure only the holder can release
-	script := redis.NewScript(`
-		if redis.call('GET', KEYS[1]) == ARGV[1] then
-			return redis.call('DEL', KEYS[1])
-		else
-			return 0
-		end
-	`)
-
-	result, err := script.Run(ctx, lm.redis, []string{key}, requestID).Int()
+	result, err := unlockScript.Run(ctx, lm.redis, []string{key}, requestID).Int()
 	if err != nil {
 		return err
 	}
 
-	if result == 0 {
+	switch result {
+	case 1:
+		log.Printf("[LockManager] Lock released for driver %s", driverID)
+		return nil
+	case -1:
+		return ErrLockExpired
+	default:
 		return ErrLockNotHeld
 	}
-
-	log.Printf("[LockManager] Lock released for driver %s", driverID)
-	return nil
 }
 
 // ExtendLock extends the TTL of an existing lock
 func (lm *LockManager) ExtendLock(ctx context.Context, driverID string, requestID string) error {
 	key := lm.lockKey(driverID)
 
-	// Only extend if we hold the lock
-	script := redis.NewScript(`
-		if redis.call('GET', KEYS[1]) == ARGV[1] then
-			return redis.call('EXPIRE', KEYS[1], ARGV[2])
-		else
-			return 0
-		end
-	`)
-
-	result, err := script.Run(ctx, lm.redis, []string{key}, requestID, int(lm.lockTTL.Seconds())).Int()
+	result, err := extendLockScript.Run(
+		ctx,
+		lm.redis,
+		[]string{key},
+		requestID,
+		int(lm.lockTTL.Seconds()),
+	).Int()
 	if err != nil {
 		return err
 	}

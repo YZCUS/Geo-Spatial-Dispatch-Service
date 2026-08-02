@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 
@@ -24,16 +25,26 @@ func (s *Server) HandleAddLocation(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[Geo] Adding location id=%s lon=%.4f lat=%.4f", loc.ID, loc.Longitude, loc.Latitude)
 	if err := s.geoService.AddLocation(r.Context(), loc); err != nil {
 		log.Printf("[Geo] Error adding location id=%s: %v", loc.ID, err)
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		if errors.Is(err, geospatial.ErrInvalidCoordinates) || errors.Is(err, geospatial.ErrInvalidLocationID) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	log.Printf("[Geo] Location added successfully id=%s", loc.ID)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{"status": "created"})
 }
 
 func (s *Server) HandleGetLocation(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	id := r.URL.Query().Get("id")
 	if id == "" {
 		log.Printf("[Geo] GetLocation missing id parameter")
@@ -45,7 +56,14 @@ func (s *Server) HandleGetLocation(w http.ResponseWriter, r *http.Request) {
 	loc, err := s.geoService.GetLocation(r.Context(), id)
 	if err != nil {
 		log.Printf("[Geo] Location not found id=%s: %v", id, err)
-		http.Error(w, err.Error(), http.StatusNotFound)
+		switch {
+		case errors.Is(err, geospatial.ErrInvalidLocationID):
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		case errors.Is(err, geospatial.ErrLocationNotFound):
+			http.Error(w, err.Error(), http.StatusNotFound)
+		default:
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -82,7 +100,11 @@ func (s *Server) HandleFindNearby(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("[Geo] Error in FindNearby: %v", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, geospatial.ErrInvalidCoordinates) || errors.Is(err, geospatial.ErrInvalidRadius) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 

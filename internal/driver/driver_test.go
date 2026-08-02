@@ -16,7 +16,9 @@ func setupTestDriver(t *testing.T) *DriverService {
 	})
 
 	ctx := context.Background()
-	rdb.FlushDB(ctx)
+	if err := rdb.FlushDB(ctx).Err(); err != nil {
+		t.Fatalf("Failed to flush Redis test DB: %v", err)
+	}
 
 	return NewDriverService(rdb, "test-driver", 5*time.Second)
 }
@@ -116,7 +118,10 @@ func TestDriverService_Heartbeat(t *testing.T) {
 	ds := setupTestDriver(t)
 	ctx := context.Background()
 
-	// Heartbeat on new driver - should set as available
+	if err := ds.SetStatus(ctx, "driver1", StatusAvailable); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+
 	err := ds.Heartbeat(ctx, "driver1")
 	if err != nil {
 		t.Fatalf("Heartbeat failed: %v", err)
@@ -125,6 +130,23 @@ func TestDriverService_Heartbeat(t *testing.T) {
 	status, _ := ds.GetStatus(ctx, "driver1")
 	if status != StatusAvailable {
 		t.Errorf("Expected status 'available' after heartbeat, got '%s'", status)
+	}
+}
+
+func TestDriverService_HeartbeatDoesNotReviveOfflineDriver(t *testing.T) {
+	ds := setupTestDriver(t)
+	ctx := context.Background()
+
+	if err := ds.Heartbeat(ctx, "driver1"); err != ErrDriverOffline {
+		t.Fatalf("Expected ErrDriverOffline, got %v", err)
+	}
+
+	status, err := ds.GetStatus(ctx, "driver1")
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if status != StatusOffline {
+		t.Fatalf("Expected driver to remain offline, got %s", status)
 	}
 }
 
@@ -217,5 +239,25 @@ func TestDriverService_ConcurrentSetBusy(t *testing.T) {
 	// Only one should succeed
 	if successCount != 1 {
 		t.Errorf("Expected exactly 1 successful SetBusy, got %d", successCount)
+	}
+}
+
+func TestDriverService_GetDriverStats(t *testing.T) {
+	ds := setupTestDriver(t)
+	ctx := context.Background()
+
+	if err := ds.SetStatus(ctx, "driver1", StatusAvailable); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+	if err := ds.SetStatus(ctx, "driver2", StatusBusy); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+
+	total, available, err := ds.GetDriverStats(ctx)
+	if err != nil {
+		t.Fatalf("GetDriverStats failed: %v", err)
+	}
+	if total != 2 || available != 1 {
+		t.Fatalf("Expected total=2 available=1, got total=%d available=%d", total, available)
 	}
 }

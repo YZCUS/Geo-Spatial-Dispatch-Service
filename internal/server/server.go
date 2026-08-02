@@ -22,7 +22,6 @@ type Server struct {
 	driverService *driver.DriverService
 	dispatcher    *dispatch.Dispatcher
 	hub           *realtime.Hub
-	ctx           context.Context
 }
 
 func New(redisAddr string) *Server {
@@ -47,13 +46,12 @@ func New(redisAddr string) *Server {
 
 	// Create hub with location update handler
 	locationHandler := func(ctx context.Context, loc *realtime.LocationPayload) error {
-		return geoService.AddLocation(ctx, geospatial.Location{
-			ID:        loc.DriverID,
-			Longitude: loc.Longitude,
-			Latitude:  loc.Latitude,
-		})
+		return dispatcher.UpdateDriverLocation(ctx, loc.DriverID, loc.Longitude, loc.Latitude)
 	}
-	hub := realtime.NewHub(locationHandler)
+	heartbeatHandler := func(ctx context.Context, driverID string) error {
+		return driverService.Heartbeat(ctx, driverID)
+	}
+	hub := realtime.NewHub(locationHandler, heartbeatHandler)
 
 	return &Server{
 		Redis:         rdb,
@@ -62,7 +60,6 @@ func New(redisAddr string) *Server {
 		driverService: driverService,
 		dispatcher:    dispatcher,
 		hub:           hub,
-		ctx:           ctx,
 	}
 }
 
@@ -83,7 +80,7 @@ func (s *Server) HandleHealthCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) HandlePing(w http.ResponseWriter, r *http.Request) {
-	pong, err := s.Redis.Ping(s.ctx).Result()
+	pong, err := s.Redis.Ping(r.Context()).Result()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
