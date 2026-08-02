@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -19,7 +20,9 @@ func setupTestDispatch(t *testing.T) (*Dispatcher, *redis.Client) {
 	})
 
 	ctx := context.Background()
-	rdb.FlushDB(ctx)
+	if err := rdb.FlushDB(ctx).Err(); err != nil {
+		t.Fatalf("Failed to flush Redis test DB: %v", err)
+	}
 
 	geoService := geospatial.New(rdb, "test-geo")
 	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
@@ -218,5 +221,131 @@ func TestDispatcher_UpdateDriverLocation(t *testing.T) {
 
 	if loc.Longitude < 9.9 || loc.Longitude > 10.1 {
 		t.Errorf("Expected longitude ~10, got %f", loc.Longitude)
+	}
+
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	status, err := driverService.GetStatus(ctx, "driver1")
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if status != driver.StatusAvailable {
+		t.Fatalf("Expected fresh location to make driver available, got %s", status)
+	}
+}
+
+func TestDispatcher_SkipsMoreThanFiveUnavailableDrivers(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	geoService := geospatial.New(rdb, "test-geo")
+	for i := 1; i <= 6; i++ {
+		if err := geoService.AddLocation(ctx, geospatial.Location{
+			ID:        fmt.Sprintf("driver%d", i),
+			Longitude: float64(i) * 0.001,
+			Latitude:  0,
+		}); err != nil {
+			t.Fatalf("AddLocation failed: %v", err)
+		}
+	}
+
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	if err := driverService.SetStatus(ctx, "driver6", driver.StatusAvailable); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+
+	result := dispatcher.FindAndAssign(ctx, DispatchRequest{
+		RequestID: "sixth-driver",
+		Longitude: 0,
+		Latitude:  0,
+		RadiusKm:  10,
+	})
+	if !result.Success || result.DriverID != "driver6" {
+		t.Fatalf("Expected driver6 assignment, got %+v", result)
+	}
+}
+
+func TestDispatcher_ReturnsRedisDistance(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	geoService := geospatial.New(rdb, "test-geo")
+	if err := geoService.AddLocation(ctx, geospatial.Location{
+		ID:        "north",
+		Longitude: 0,
+		Latitude:  1,
+	}); err != nil {
+		t.Fatalf("AddLocation failed: %v", err)
+	}
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	if err := driverService.SetStatus(ctx, "north", driver.StatusAvailable); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+
+	result := dispatcher.FindAndAssign(ctx, DispatchRequest{
+		RequestID: "distance",
+		Longitude: 0,
+		Latitude:  0,
+		RadiusKm:  120,
+	})
+	if !result.Success {
+		t.Fatalf("Expected assignment, got %+v", result)
+	}
+	if result.Distance < 110 || result.Distance > 112 {
+		t.Errorf("Expected distance around 111km, got %.2f", result.Distance)
+	}
+}
+
+func TestDispatcher_ReleaseRequiresLockOwnership(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	if err := driverService.SetStatus(ctx, "driver1", driver.StatusBusy); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+	if locked, err := dispatcher.lockManager.TryLock(ctx, "driver1", "owner"); err != nil || !locked {
+		t.Fatalf("TryLock failed: locked=%v err=%v", locked, err)
+	}
+
+	if err := dispatcher.ReleaseDriver(ctx, "driver1", "not-owner"); err != ErrLockNotHeld {
+		t.Fatalf("Expected ErrLockNotHeld, got %v", err)
+	}
+	status, err := driverService.GetStatus(ctx, "driver1")
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if status != driver.StatusBusy {
+		t.Fatalf("Expected driver to remain busy, got %s", status)
+	}
+}
+
+func TestDispatcher_ReleaseAfterLockExpiry(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	if err := driverService.SetStatus(ctx, "driver1", driver.StatusBusy); err != nil {
+		t.Fatalf("SetStatus failed: %v", err)
+	}
+	if locked, err := dispatcher.lockManager.TryLock(ctx, "driver1", "owner"); err != nil || !locked {
+		t.Fatalf("TryLock failed: locked=%v err=%v", locked, err)
+	}
+	if err := rdb.Del(ctx, dispatcher.lockManager.lockKey("driver1")).Err(); err != nil {
+		t.Fatalf("Failed to expire lock: %v", err)
+	}
+
+	if err := dispatcher.ReleaseDriver(ctx, "driver1", "owner"); err != nil {
+		t.Fatalf("ReleaseDriver failed after lock expiry: %v", err)
+	}
+	status, err := driverService.GetStatus(ctx, "driver1")
+	if err != nil {
+		t.Fatalf("GetStatus failed: %v", err)
+	}
+	if status != driver.StatusAvailable {
+		t.Fatalf("Expected driver to become available, got %s", status)
 	}
 }

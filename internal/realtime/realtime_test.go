@@ -3,6 +3,7 @@ package realtime
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,7 +15,7 @@ import (
 )
 
 func TestHub_RegisterUnregister(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -37,16 +38,18 @@ func TestHub_LocationBroadcast(t *testing.T) {
 		return nil
 	}
 
-	hub := NewHub(handler)
+	hub := NewHub(handler, nil)
 	go hub.Run()
 	defer hub.Stop()
 
 	time.Sleep(10 * time.Millisecond)
 
-	hub.broadcastLocation <- &LocationPayload{
+	if err := hub.PublishLocation(&LocationPayload{
 		DriverID:  "driver1",
 		Longitude: 10.0,
 		Latitude:  20.0,
+	}); err != nil {
+		t.Fatalf("PublishLocation failed: %v", err)
 	}
 
 	time.Sleep(50 * time.Millisecond)
@@ -64,7 +67,7 @@ func TestHub_LocationBroadcast(t *testing.T) {
 }
 
 func TestHub_Stats(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -77,7 +80,7 @@ func TestHub_Stats(t *testing.T) {
 }
 
 func TestHub_Stop(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 
 	time.Sleep(10 * time.Millisecond)
@@ -89,7 +92,7 @@ func TestHub_Stop(t *testing.T) {
 }
 
 func TestHub_GetDriverCount(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -102,7 +105,7 @@ func TestHub_GetDriverCount(t *testing.T) {
 }
 
 func TestHub_GetRiderCount(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -115,7 +118,7 @@ func TestHub_GetRiderCount(t *testing.T) {
 }
 
 func TestHub_SendToDriver_NotConnected(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -128,7 +131,7 @@ func TestHub_SendToDriver_NotConnected(t *testing.T) {
 }
 
 func TestHub_SendToRider_NotConnected(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -289,7 +292,7 @@ func TestSubscribePayload_Serialization(t *testing.T) {
 
 // WebSocket integration test
 func TestWebSocket_DriverConnection(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -329,7 +332,7 @@ func TestWebSocket_DriverConnection(t *testing.T) {
 }
 
 func TestWebSocket_RiderConnection(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	go hub.Run()
 	defer hub.Stop()
 
@@ -367,7 +370,7 @@ func TestWebSocket_RiderConnection(t *testing.T) {
 }
 
 func TestClient_IsSubscribedTo(t *testing.T) {
-	hub := NewHub(nil)
+	hub := NewHub(nil, nil)
 	client := &Client{
 		ID:         "rider1",
 		Type:       ClientTypeRider,
@@ -386,5 +389,130 @@ func TestClient_IsSubscribedTo(t *testing.T) {
 
 	if !client.IsSubscribedTo("driver1") {
 		t.Error("Should be subscribed to driver1")
+	}
+}
+
+func TestHub_DuplicateClientIDKeepsReplacement(t *testing.T) {
+	hub := NewHub(nil, nil)
+	first := NewClient("driver1", ClientTypeDriver, hub, nil)
+	replacement := NewClient("driver1", ClientTypeDriver, hub, nil)
+
+	hub.registerClient(first)
+	hub.registerClient(replacement)
+	hub.unregisterClient(first)
+
+	if current := hub.drivers["driver1"]; current != replacement {
+		t.Fatal("Old client unregister removed its replacement")
+	}
+	if stats := hub.GetStats(); stats.TotalDrivers != 1 {
+		t.Fatalf("Expected one connected driver, got %d", stats.TotalDrivers)
+	}
+
+	hub.unregisterClient(replacement)
+}
+
+func TestHub_StatsConcurrentAccess(t *testing.T) {
+	hub := NewHub(nil, nil)
+	go hub.Run()
+	defer hub.Stop()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			if err := hub.PublishLocation(&LocationPayload{DriverID: "driver1"}); err != nil {
+				return
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 500; i++ {
+			_ = hub.GetStats()
+		}
+	}()
+	wg.Wait()
+}
+
+func TestClient_HeartbeatRefreshesDriver(t *testing.T) {
+	called := make(chan string, 1)
+	hub := NewHub(nil, func(_ context.Context, driverID string) error {
+		called <- driverID
+		return nil
+	})
+	client := NewClient("driver1", ClientTypeDriver, hub, nil)
+
+	client.handleMessage(&Message{Type: TypeHeartbeat})
+
+	select {
+	case driverID := <-called:
+		if driverID != "driver1" {
+			t.Fatalf("Expected driver1 heartbeat, got %s", driverID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Heartbeat handler was not called")
+	}
+}
+
+func TestIsExpectedReadClose(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "normal closure",
+			err:  &websocket.CloseError{Code: websocket.CloseNormalClosure},
+			want: true,
+		},
+		{
+			name: "going away",
+			err:  &websocket.CloseError{Code: websocket.CloseGoingAway},
+			want: true,
+		},
+		{
+			name: "abnormal closure",
+			err:  &websocket.CloseError{Code: websocket.CloseAbnormalClosure},
+			want: false,
+		},
+		{
+			name: "non close error",
+			err:  errors.New("read failed"),
+			want: false,
+		},
+	}
+
+	for _, tc := range tests {
+		if got := isExpectedReadClose(tc.err); got != tc.want {
+			t.Fatalf("%s: expected %t, got %t", tc.name, tc.want, got)
+		}
+	}
+}
+
+func TestShouldLogReadError(t *testing.T) {
+	readFailure := errors.New("read failed")
+	if !shouldLogReadError(readFailure, false) {
+		t.Fatal("expected an active client's unexpected read failure to be logged")
+	}
+	if shouldLogReadError(readFailure, true) {
+		t.Fatal("expected a server-closed client's read failure to be suppressed")
+	}
+	if shouldLogReadError(
+		&websocket.CloseError{Code: websocket.CloseNormalClosure},
+		false,
+	) {
+		t.Fatal("expected a normal peer close to be suppressed")
+	}
+}
+
+func TestNormalCloseMessage(t *testing.T) {
+	msg := normalCloseMessage()
+
+	if got := websocket.IsCloseError(&websocket.CloseError{Code: int(uint16(msg[0])<<8 | uint16(msg[1]))}, websocket.CloseNormalClosure); !got {
+		t.Fatal("expected normal close code in close message")
+	}
+	if string(msg[2:]) != "Server closing" {
+		t.Fatalf("expected close reason %q, got %q", "Server closing", string(msg[2:]))
 	}
 }

@@ -12,7 +12,7 @@ func setupTestRedis(t *testing.T) *redis.Client {
 	t.Helper()
 	rdb := redis.NewClient(&redis.Options{
 		Addr: "localhost:6379",
-		DB:   1, // Use different DB for tests
+		DB:   5,
 	})
 
 	// Clear test DB
@@ -235,5 +235,69 @@ func TestRateLimiter_AllowAtomic_Concurrent(t *testing.T) {
 	// Should only allow exactly 10 requests (100 budget / 10 cost each)
 	if successCount != 10 {
 		t.Errorf("Expected exactly 10 successful requests, got %d", successCount)
+	}
+}
+
+func TestRateLimiter_NamespacesBudgetKeys(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer rdb.Close()
+
+	rl := New(rdb)
+	ctx := context.Background()
+	if err := rl.SetBudget(ctx, "locations", 100); err != nil {
+		t.Fatalf("SetBudget failed: %v", err)
+	}
+
+	if exists, err := rdb.Exists(ctx, "locations").Result(); err != nil {
+		t.Fatalf("Exists failed: %v", err)
+	} else if exists != 0 {
+		t.Fatal("Rate limiter wrote an un-namespaced Redis key")
+	}
+	if value, err := rdb.Get(ctx, budgetKeyPrefix+"locations").Int64(); err != nil {
+		t.Fatalf("Expected namespaced key: %v", err)
+	} else if value != 100 {
+		t.Fatalf("Expected budget 100, got %d", value)
+	}
+}
+
+func TestRateLimiter_RejectsEmptyKey(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer rdb.Close()
+
+	rl := New(rdb)
+	if err := rl.SetBudget(context.Background(), " ", 100); err != ErrInvalidKey {
+		t.Fatalf("Expected ErrInvalidKey, got %v", err)
+	}
+}
+
+func TestRateLimiter_AllowIsAtomic(t *testing.T) {
+	rdb := setupTestRedis(t)
+	defer rdb.Close()
+
+	rl := New(rdb)
+	ctx := context.Background()
+	if err := rl.SetBudget(ctx, "allow-concurrent", 100); err != nil {
+		t.Fatalf("SetBudget failed: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	successCount := 0
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			allowed, err := rl.Allow(ctx, "allow-concurrent", 10)
+			if err == nil && allowed {
+				mu.Lock()
+				successCount++
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+
+	if successCount != 10 {
+		t.Fatalf("Expected exactly 10 successful requests, got %d", successCount)
 	}
 }

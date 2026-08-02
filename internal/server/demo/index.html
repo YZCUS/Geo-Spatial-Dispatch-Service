@@ -1,0 +1,2914 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#010102">
+  <title>Dispatch Lab · Manhattan</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --canvas: #010102;
+      --surface-1: #0f1011;
+      --surface-2: #141516;
+      --surface-3: #18191a;
+      --hairline: #23252a;
+      --hairline-strong: #34343a;
+      --ink: #f7f8f8;
+      --ink-muted: #d0d6e0;
+      --ink-subtle: #8a8f98;
+      --ink-tertiary: #62666d;
+      --primary: #5e6ad2;
+      --primary-hover: #828fff;
+      --success: #27a644;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --radius-xl: 16px;
+      --font-sans: "SF Pro Display", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      background: var(--canvas);
+      scroll-behavior: smooth;
+    }
+
+    body {
+      min-width: 320px;
+      min-height: 100vh;
+      margin: 0;
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      min-height: 42px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: var(--radius-md);
+      background: var(--surface-2);
+      color: var(--ink);
+      cursor: pointer;
+      font-weight: 500;
+      transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+    }
+
+    button:hover:not(:disabled) {
+      border-color: #464850;
+      background: var(--surface-3);
+    }
+
+    button:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    button:disabled {
+      cursor: not-allowed;
+      opacity: 0.42;
+    }
+
+    button.primary {
+      border-color: var(--primary);
+      background: var(--primary);
+      color: #fff;
+    }
+
+    button.primary:hover:not(:disabled) {
+      border-color: var(--primary-hover);
+      background: var(--primary-hover);
+    }
+
+    button.quiet {
+      min-height: 34px;
+      padding: 6px 10px;
+      border-color: transparent;
+      background: transparent;
+      color: var(--ink-subtle);
+      font-size: 12px;
+    }
+
+    button.quiet:hover:not(:disabled) {
+      border-color: var(--hairline);
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible,
+    a:focus-visible {
+      outline: 2px solid var(--primary-hover);
+      outline-offset: 2px;
+    }
+
+    input,
+    select {
+      width: 100%;
+      min-height: 44px;
+      padding: 9px 11px;
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      background: var(--surface-1);
+      color: var(--ink);
+      font-family: var(--font-mono);
+      font-size: 13px;
+      transition: border-color 140ms ease, box-shadow 140ms ease;
+    }
+
+    input:hover,
+    select:hover {
+      border-color: var(--hairline-strong);
+    }
+
+    input:focus,
+    select:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgb(94 106 210 / 20%);
+    }
+
+    input[aria-invalid="true"],
+    select[aria-invalid="true"] {
+      border-color: var(--primary-hover);
+    }
+
+    .visually-hidden {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .skip-link {
+      position: fixed;
+      z-index: 100;
+      top: 12px;
+      left: 12px;
+      padding: 9px 12px;
+      border-radius: var(--radius-md);
+      background: var(--primary);
+      color: #fff;
+      text-decoration: none;
+      transform: translateY(-160%);
+    }
+
+    .skip-link:focus {
+      transform: translateY(0);
+    }
+
+    .shell {
+      width: min(1440px, 100%);
+      margin: 0 auto;
+      padding: 0 32px 36px;
+    }
+
+    .topbar {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .brand,
+    .health-cluster,
+    .health-item,
+    .inline-actions,
+    .legend,
+    .legend-item,
+    .section-title-row,
+    .log-heading {
+      display: flex;
+      align-items: center;
+    }
+
+    .brand {
+      min-width: 0;
+      gap: 10px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .brand-mark {
+      width: 18px;
+      height: 18px;
+      border: 5px solid var(--primary);
+      border-radius: 5px;
+      transform: rotate(45deg);
+    }
+
+    .environment {
+      padding: 2px 7px;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      color: var(--ink-subtle);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 400;
+      letter-spacing: 0.5px;
+    }
+
+    .health-cluster {
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    .health-item {
+      min-height: 28px;
+      gap: 7px;
+      padding: 4px 9px;
+      border: 1px solid var(--hairline);
+      border-radius: 999px;
+      background: var(--surface-1);
+      color: var(--ink-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--ink-tertiary);
+      box-shadow: 0 0 0 3px rgb(98 102 109 / 12%);
+    }
+
+    .health-item[data-state="online"] .status-dot {
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgb(39 166 68 / 14%);
+    }
+
+    .health-item[data-state="checking"] .status-dot {
+      background: var(--primary-hover);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .hero {
+      padding: 28px 0 20px;
+    }
+
+    .eyebrow {
+      margin: 0 0 9px;
+      color: var(--primary-hover);
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.45px;
+      text-transform: uppercase;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      max-width: 980px;
+      margin-bottom: 10px;
+      font-size: clamp(34px, 4vw, 48px);
+      font-weight: 600;
+      letter-spacing: clamp(-2px, -0.04em, -1px);
+      line-height: 1.04;
+    }
+
+    .hero-copy {
+      max-width: 920px;
+      margin-bottom: 0;
+      color: var(--ink-subtle);
+      font-size: 15px;
+    }
+
+    .error-banner {
+      position: relative;
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 10px;
+      margin-bottom: 16px;
+      padding: 11px 12px;
+      border: 1px solid var(--primary);
+      border-radius: var(--radius-md);
+      background: var(--surface-2);
+      color: var(--ink-muted);
+    }
+
+    .error-banner[hidden] {
+      display: none;
+    }
+
+    .error-symbol {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--primary);
+      color: #fff;
+      font-weight: 700;
+    }
+
+    .error-banner p {
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .error-banner .quiet {
+      min-height: 24px;
+      padding: 1px 6px;
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.7fr) minmax(320px, 0.72fr);
+      align-items: stretch;
+      gap: 16px;
+    }
+
+    .card {
+      overflow: hidden;
+      border: 1px solid var(--hairline);
+      border-top-color: var(--hairline-strong);
+      border-radius: var(--radius-lg);
+      background: var(--surface-1);
+    }
+
+    .card-header {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .card-header h2 {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 550;
+      letter-spacing: -0.1px;
+    }
+
+    .card-header p {
+      margin: 2px 0 0;
+      color: var(--ink-tertiary);
+      font-size: 11px;
+    }
+
+    .live-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 3px 8px;
+      border-radius: 999px;
+      background: var(--surface-2);
+      color: var(--ink-subtle);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .live-status::before {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--ink-tertiary);
+      content: "";
+    }
+
+    .live-status[data-state="live"] {
+      color: var(--ink-muted);
+    }
+
+    .live-status[data-state="live"]::before {
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgb(39 166 68 / 14%);
+    }
+
+    .live-status[data-state="connecting"]::before,
+    .live-status[data-state="initializing"]::before {
+      background: var(--primary-hover);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .live-status[data-state="error"] {
+      color: var(--primary-hover);
+    }
+
+    .map-wrap {
+      position: relative;
+      min-height: 430px;
+      overflow: hidden;
+      background: #090a0b;
+    }
+
+    .map-art {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .map-art .land {
+      fill: #0c0d0e;
+    }
+
+    .map-art .block {
+      fill: #111315;
+      stroke: #1b1d20;
+      stroke-width: 1;
+    }
+
+    .map-art .street {
+      fill: none;
+      stroke: #2b2d31;
+      stroke-width: 4;
+    }
+
+    .map-art .avenue {
+      stroke: #383a3f;
+      stroke-width: 7;
+    }
+
+    .map-art .minor {
+      stroke: #202226;
+      stroke-width: 2;
+    }
+
+    .map-art text {
+      fill: #5f646c;
+      font-family: var(--font-mono);
+      font-size: 10px;
+      letter-spacing: 0.4px;
+    }
+
+    .map-grid-reference {
+      position: absolute;
+      right: 14px;
+      bottom: 12px;
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      pointer-events: none;
+    }
+
+    .map-marker {
+      --pin-color: var(--ink);
+      position: absolute;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      transform: translate(-12px, -12px);
+      transition: left 820ms linear, top 820ms linear, opacity 180ms ease, transform 180ms ease;
+      pointer-events: none;
+    }
+
+    .map-marker.route-snap {
+      transition: none;
+    }
+
+    .map-marker .pin {
+      position: relative;
+      width: 24px;
+      height: 24px;
+      flex: 0 0 24px;
+      display: grid;
+      place-items: center;
+      border: 2px solid #090a0b;
+      border-radius: 50%;
+      background: var(--pin-color);
+      color: var(--canvas);
+      box-shadow: 0 0 0 1px rgb(247 248 248 / 24%);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .map-marker .marker-label {
+      display: none;
+      max-width: 145px;
+      padding: 4px 7px;
+      overflow: hidden;
+      border: 1px solid var(--hairline-strong);
+      border-radius: var(--radius-sm);
+      background: rgb(15 16 17 / 92%);
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+      line-height: 1.2;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .map-marker.rider {
+      --pin-color: var(--primary);
+      z-index: 3;
+      opacity: 0.72;
+      transform: translate(-28px, -28px);
+    }
+
+    .map-marker.rider .pin {
+      width: 20px;
+      height: 20px;
+      flex-basis: 20px;
+      border-radius: 6px 6px 6px 1px;
+      color: #fff;
+      transform: rotate(-45deg);
+    }
+
+    .map-marker.rider .pin span {
+      transform: rotate(45deg);
+    }
+
+    .map-marker.rider.active-request {
+      opacity: 1;
+      z-index: 4;
+    }
+
+    .map-marker.rider.active-request .pin {
+      box-shadow: 0 0 0 4px rgb(94 106 210 / 26%);
+    }
+
+    .map-marker.rider.active-request .marker-label,
+    .map-marker.matched .marker-label {
+      display: block;
+    }
+
+    .map-marker.tone-1 {
+      --pin-color: var(--ink);
+    }
+
+    .map-marker.tone-2 {
+      --pin-color: var(--ink-muted);
+    }
+
+    .map-marker.tone-3 {
+      --pin-color: var(--ink-subtle);
+    }
+
+    .map-marker.tone-4 {
+      --pin-color: #a8b1c7;
+    }
+
+    .map-marker.matched .pin {
+      background: var(--primary);
+      color: #fff;
+      box-shadow: 0 0 0 4px rgb(94 106 210 / 28%);
+    }
+
+    .map-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      min-height: 50px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--hairline);
+      color: var(--ink-tertiary);
+      font-size: 11px;
+    }
+
+    .legend {
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+
+    .legend-item {
+      gap: 6px;
+    }
+
+    .legend-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--ink-muted);
+    }
+
+    .legend-dot.rider {
+      border-radius: 2px;
+      background: var(--primary);
+      transform: rotate(45deg);
+    }
+
+    .legend-dot.matched {
+      background: var(--primary-hover);
+      box-shadow: 0 0 0 3px rgb(94 106 210 / 20%);
+    }
+
+    .map-footer code,
+    .driver-row code,
+    .result-id {
+      color: var(--ink-subtle);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .control-panel {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .control-section {
+      padding: 13px 14px;
+      border-bottom: 1px solid var(--hairline);
+    }
+
+    .control-section:last-child {
+      border-bottom: 0;
+    }
+
+    .section-title-row {
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .step-title {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .step-number {
+      display: inline-grid;
+      width: 20px;
+      height: 20px;
+      place-items: center;
+      margin-right: 7px;
+      border: 1px solid var(--hairline-strong);
+      border-radius: 50%;
+      color: var(--ink-subtle);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .driver-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 5px;
+      margin-bottom: 9px;
+    }
+
+    .rider-list,
+    .live-actions {
+      display: grid;
+      gap: 7px;
+    }
+
+    .driver-row,
+    .rider-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 32px;
+      padding: 5px 7px;
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      background: var(--surface-2);
+    }
+
+    .driver-avatar,
+    .rider-avatar {
+      width: 20px;
+      height: 20px;
+      display: grid;
+      place-items: center;
+      border-radius: 50%;
+      background: var(--ink-muted);
+      color: var(--canvas);
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+    }
+
+    .rider-avatar {
+      background: var(--primary);
+      color: #fff;
+    }
+
+    .driver-avatar.tone-2 {
+      background: var(--ink-muted);
+    }
+
+    .driver-avatar.tone-3 {
+      background: var(--ink-subtle);
+    }
+
+    .driver-avatar.tone-4 {
+      background: #a8b1c7;
+    }
+
+    .driver-name,
+    .rider-name {
+      min-width: 0;
+      overflow: hidden;
+      color: var(--ink-muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .driver-state,
+    .rider-state {
+      color: var(--ink-tertiary);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    .driver-state[data-state="available"] {
+      color: var(--ink-muted);
+    }
+
+    .driver-state[data-state="busy"],
+    .rider-row[data-active="true"] .rider-state {
+      color: var(--primary-hover);
+    }
+
+    .rider-row[data-active="true"] {
+      border-color: var(--primary);
+      background: #11121b;
+    }
+
+    .rider-row[data-active="true"] .rider-name {
+      color: var(--ink);
+    }
+
+    .full-button {
+      width: 100%;
+      padding: 9px 12px;
+    }
+
+    .field-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+    }
+
+    .field.full {
+      grid-column: 1 / -1;
+    }
+
+    .field label {
+      color: var(--ink-subtle);
+      font-size: 11px;
+    }
+
+    .field-hint {
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .field-error {
+      color: var(--primary-hover);
+      font-size: 10px;
+    }
+
+    .field-error[hidden] {
+      display: none;
+    }
+
+    .dispatch-submit {
+      margin-top: 12px;
+    }
+
+    .socket-copy {
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .result-panel {
+      min-height: 126px;
+      padding: 14px;
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-md);
+      background: var(--canvas);
+    }
+
+    .result-panel[data-state="matched"] {
+      border-color: var(--primary);
+      background: #11121b;
+    }
+
+    .result-kicker {
+      margin-bottom: 6px;
+      color: var(--ink-tertiary);
+      font-size: 10px;
+      letter-spacing: 0.45px;
+      text-transform: uppercase;
+    }
+
+    .result-primary {
+      margin-bottom: 3px;
+      color: var(--ink);
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.4px;
+    }
+
+    .result-detail {
+      min-height: 21px;
+      margin-bottom: 8px;
+      color: var(--ink-subtle);
+      font-size: 12px;
+    }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.68fr) minmax(0, 1.32fr);
+      gap: 16px;
+      margin-top: 16px;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 1px;
+      margin: 0;
+      background: var(--hairline);
+    }
+
+    .metric {
+      min-height: 112px;
+      padding: 18px;
+      background: var(--surface-1);
+    }
+
+    .metric dt {
+      color: var(--ink-tertiary);
+      font-size: 11px;
+    }
+
+    .metric dd {
+      margin: 10px 0 0;
+      color: var(--ink);
+      font-size: 30px;
+      font-weight: 600;
+      letter-spacing: -0.9px;
+    }
+
+    .stats-meta {
+      padding: 10px 16px;
+      border-top: 1px solid var(--hairline);
+      color: var(--ink-tertiary);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .log-card {
+      min-height: 262px;
+    }
+
+    .log-heading {
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+    }
+
+    .log-list {
+      height: 204px;
+      margin: 0;
+      padding: 0;
+      overflow: auto;
+      list-style: none;
+      scrollbar-color: var(--hairline-strong) transparent;
+    }
+
+    .log-entry {
+      display: grid;
+      grid-template-columns: 72px 48px minmax(0, 1fr);
+      gap: 10px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--hairline);
+      color: var(--ink-subtle);
+      font-family: var(--font-mono);
+      font-size: 11px;
+    }
+
+    .log-entry:last-child {
+      border-bottom: 0;
+    }
+
+    .log-time,
+    .log-source {
+      color: var(--ink-tertiary);
+    }
+
+    .log-entry[data-level="error"] .log-source,
+    .log-entry[data-level="error"] .log-message {
+      color: var(--primary-hover);
+    }
+
+    .log-entry[data-level="success"] .log-source {
+      color: var(--success);
+    }
+
+    .log-message {
+      overflow-wrap: anywhere;
+    }
+
+    footer {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 2px 0;
+      color: var(--ink-tertiary);
+      font-size: 11px;
+    }
+
+    footer code {
+      font-family: var(--font-mono);
+    }
+
+    @keyframes pulse {
+      0%,
+      100% {
+        opacity: 0.45;
+      }
+      50% {
+        opacity: 1;
+      }
+    }
+
+    @media (max-width: 900px) {
+      .workspace,
+      .bottom-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .control-panel {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .control-section {
+        border-right: 1px solid var(--hairline);
+        border-bottom: 0;
+      }
+
+      .control-section:last-child {
+        border-right: 0;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .shell {
+        padding-right: 18px;
+        padding-left: 18px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 14px 0;
+      }
+
+      .health-cluster {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+      }
+
+      .hero {
+        padding-top: 28px;
+      }
+
+      .control-panel {
+        display: flex;
+      }
+
+      .control-section {
+        border-right: 0;
+        border-bottom: 1px solid var(--hairline);
+      }
+
+      .map-wrap {
+        min-height: 390px;
+      }
+
+      .map-marker .marker-label,
+      .map-marker.rider.active-request .marker-label,
+      .map-marker.matched .marker-label {
+        display: none;
+      }
+
+      .driver-list {
+        grid-template-columns: 1fr;
+      }
+
+      .map-footer {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      footer {
+        flex-direction: column;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .shell {
+        padding-right: 12px;
+        padding-left: 12px;
+      }
+
+      .brand-name {
+        max-width: 150px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .field-grid,
+      .metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .field.full {
+        grid-column: auto;
+      }
+
+      .map-wrap {
+        min-height: 370px;
+      }
+
+      .log-entry {
+        grid-template-columns: 65px 44px minmax(0, 1fr);
+        gap: 6px;
+        padding-right: 10px;
+        padding-left: 10px;
+        font-size: 10px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip-link" href="#demo-controls">Skip to dispatch controls</a>
+
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand" aria-label="Geo Dispatch demo">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">Geo Dispatch</span>
+        <span class="environment">MANHATTAN DEMO</span>
+      </div>
+
+      <div class="health-cluster" aria-label="Backend status">
+        <span class="health-item" id="serviceHealth" data-state="checking" title="Checking /health">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Service <strong id="serviceHealthText">Checking</strong></span>
+        </span>
+        <span class="health-item" id="redisHealth" data-state="checking" title="Checking /ping">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span>Redis <strong id="redisHealthText">Checking</strong></span>
+        </span>
+        <button class="quiet" id="refreshHealthButton" type="button">Refresh status</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero" aria-labelledby="page-title">
+        <div>
+          <p class="eyebrow">Interview walkthrough</p>
+          <h1 id="page-title">Dispatch the nearest Manhattan driver in under two minutes.</h1>
+          <p class="hero-copy">
+            Start from eight fixed drivers, rank candidates by Redis GEO straight-line distance,
+            then open eleven WebSockets for a browser-simulated fleet fan-out visualization.
+          </p>
+        </div>
+      </section>
+
+      <div class="error-banner" id="errorBanner" role="alert" hidden>
+        <span class="error-symbol" aria-hidden="true">!</span>
+        <p id="errorMessage"></p>
+        <button class="quiet" id="dismissErrorButton" type="button" aria-label="Dismiss error">Dismiss</button>
+      </div>
+
+      <section class="workspace" aria-label="Dispatch demo workspace">
+        <article class="card">
+          <header class="card-header">
+            <div>
+              <h2>Manhattan operations map</h2>
+              <p>3 rider requests · 8 road-constrained simulated drivers · 1-second updates</p>
+            </div>
+            <span class="live-status" id="liveStatus" data-state="initializing" role="status">Preparing known state</span>
+          </header>
+
+          <div class="map-wrap" id="map" aria-label="Map showing three rider requests and eight demo drivers">
+            <svg class="map-art" viewBox="0 0 760 510" preserveAspectRatio="none" aria-hidden="true">
+              <rect class="land" width="760" height="510"></rect>
+              <g>
+                <rect class="block" x="61" y="48" width="99" height="57" rx="3"></rect>
+                <rect class="block" x="179" y="48" width="97" height="57" rx="3"></rect>
+                <rect class="block" x="295" y="48" width="96" height="57" rx="3"></rect>
+                <rect class="block" x="410" y="48" width="98" height="57" rx="3"></rect>
+                <rect class="block" x="527" y="48" width="98" height="57" rx="3"></rect>
+                <rect class="block" x="644" y="48" width="68" height="57" rx="3"></rect>
+                <rect class="block" x="61" y="126" width="99" height="60" rx="3"></rect>
+                <rect class="block" x="179" y="126" width="97" height="60" rx="3"></rect>
+                <rect class="block" x="295" y="126" width="96" height="60" rx="3"></rect>
+                <rect class="block" x="410" y="126" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="527" y="126" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="644" y="126" width="68" height="60" rx="3"></rect>
+                <rect class="block" x="61" y="207" width="99" height="60" rx="3"></rect>
+                <rect class="block" x="179" y="207" width="97" height="60" rx="3"></rect>
+                <rect class="block" x="295" y="207" width="96" height="60" rx="3"></rect>
+                <rect class="block" x="410" y="207" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="527" y="207" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="644" y="207" width="68" height="60" rx="3"></rect>
+                <rect class="block" x="61" y="288" width="99" height="59" rx="3"></rect>
+                <rect class="block" x="179" y="288" width="97" height="59" rx="3"></rect>
+                <rect class="block" x="295" y="288" width="96" height="59" rx="3"></rect>
+                <rect class="block" x="410" y="288" width="98" height="59" rx="3"></rect>
+                <rect class="block" x="527" y="288" width="98" height="59" rx="3"></rect>
+                <rect class="block" x="644" y="288" width="68" height="59" rx="3"></rect>
+                <rect class="block" x="61" y="368" width="99" height="60" rx="3"></rect>
+                <rect class="block" x="179" y="368" width="97" height="60" rx="3"></rect>
+                <rect class="block" x="295" y="368" width="96" height="60" rx="3"></rect>
+                <rect class="block" x="410" y="368" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="527" y="368" width="98" height="60" rx="3"></rect>
+                <rect class="block" x="644" y="368" width="68" height="60" rx="3"></rect>
+              </g>
+              <g class="minor">
+                <path d="M0 116 H760"></path>
+                <path d="M0 197 H760"></path>
+                <path d="M0 278 H760"></path>
+                <path d="M0 358 H760"></path>
+                <path d="M0 439 H760"></path>
+              </g>
+              <g class="street">
+                <path d="M0 36 H760"></path>
+                <path d="M0 105 H760"></path>
+                <path d="M0 186 H760"></path>
+                <path d="M0 267 H760"></path>
+                <path d="M0 347 H760"></path>
+                <path d="M0 428 H760"></path>
+                <path d="M0 474 H760"></path>
+              </g>
+              <g class="street avenue">
+                <path d="M50 0 V510"></path>
+                <path d="M169 0 V510"></path>
+                <path d="M285 0 V510"></path>
+                <path d="M400 0 V510"></path>
+                <path d="M518 0 V510"></path>
+                <path d="M635 0 V510"></path>
+                <path d="M722 0 V510"></path>
+              </g>
+              <g>
+                <text x="72" y="29">9TH AVE</text>
+                <text x="188" y="29">8TH AVE</text>
+                <text x="305" y="29">7TH AVE</text>
+                <text x="421" y="29">6TH AVE</text>
+                <text x="540" y="29">5TH AVE</text>
+                <text x="650" y="29">MADISON</text>
+                <text x="8" y="98">W 42ND</text>
+                <text x="8" y="180">W 37TH</text>
+                <text x="8" y="261">W 32ND</text>
+                <text x="8" y="341">W 27TH</text>
+                <text x="8" y="422">W 22ND</text>
+              </g>
+            </svg>
+
+            <div id="riderLayer"></div>
+            <div id="driverLayer"></div>
+            <span class="map-grid-reference">40.738–40.758° N</span>
+          </div>
+
+          <div class="map-footer">
+            <div class="legend" aria-label="Map legend">
+              <span class="legend-item"><span class="legend-dot rider" aria-hidden="true"></span>Active rider request</span>
+              <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span>Driver on road grid</span>
+              <span class="legend-item"><span class="legend-dot matched" aria-hidden="true"></span>Matched driver</span>
+            </div>
+            <code id="mapCoordinateReadout">Active demo-rider-01 · −73.98570, 40.74840</code>
+          </div>
+        </article>
+
+        <aside class="card control-panel" id="demo-controls" tabindex="-1" aria-label="Demo controls">
+          <section class="control-section" aria-labelledby="seed-title">
+            <div class="section-title-row">
+              <h2 class="step-title" id="seed-title"><span class="step-number">1</span>Known demo state</h2>
+              <span class="field-hint">8 fixed IDs</span>
+            </div>
+            <div class="driver-list" id="driverList" aria-label="Eight demo drivers"></div>
+            <button class="primary full-button" id="resetDemoButton" type="button" disabled aria-busy="true">Preparing known state…</button>
+          </section>
+
+          <section class="control-section" aria-labelledby="dispatch-title">
+            <div class="section-title-row">
+              <h2 class="step-title" id="dispatch-title"><span class="step-number">2</span>Request dispatch</h2>
+              <span class="field-hint">3 riders · POST /dispatch/request</span>
+            </div>
+            <form id="dispatchForm" novalidate>
+              <div class="field-grid">
+                <div class="field full">
+                  <label for="activeRiderSelect">Active rider request</label>
+                  <select id="activeRiderSelect" name="activeRider" disabled></select>
+                  <span class="field-hint">Switching riders clears the current dispatch result.</span>
+                </div>
+                <div class="field">
+                  <label for="pickupLongitude">Longitude</label>
+                  <input id="pickupLongitude" name="longitude" type="number" min="-180" max="180" step="0.0001" value="-73.9857" inputmode="decimal" aria-errormessage="pickupLongitudeError" required disabled>
+                  <span class="field-error" id="pickupLongitudeError" hidden>Enter longitude between -180 and 180.</span>
+                </div>
+                <div class="field">
+                  <label for="pickupLatitude">Latitude</label>
+                  <input id="pickupLatitude" name="latitude" type="number" min="-90" max="90" step="0.0001" value="40.7484" inputmode="decimal" aria-errormessage="pickupLatitudeError" required disabled>
+                  <span class="field-error" id="pickupLatitudeError" hidden>Enter latitude between -90 and 90.</span>
+                </div>
+                <div class="field full">
+                  <label for="dispatchRadius">Search radius</label>
+                  <input id="dispatchRadius" name="radius" type="number" min="0.1" max="25" step="0.1" value="5" inputmode="decimal" aria-describedby="dispatchRadiusHint" aria-errormessage="dispatchRadiusError" required disabled>
+                  <span class="field-error" id="dispatchRadiusError" hidden>Enter a radius between 0.1 and 25 kilometers.</span>
+                  <span class="field-hint" id="dispatchRadiusHint">kilometers · 0.1–25</span>
+                </div>
+              </div>
+              <div class="rider-list" id="riderList" role="list" aria-label="Interview rider requests"></div>
+              <button class="primary full-button dispatch-submit" id="dispatchButton" type="submit" disabled>Find nearest driver</button>
+            </form>
+          </section>
+
+          <section class="control-section" aria-labelledby="result-title">
+            <div class="section-title-row">
+              <h2 class="step-title" id="result-title"><span class="step-number">3</span>Dispatch result</h2>
+              <span class="field-hint">latest response</span>
+            </div>
+            <div class="result-panel" id="dispatchResult" data-state="idle" aria-live="polite">
+              <div class="result-kicker" id="resultKicker">Ready</div>
+              <div class="result-primary" id="resultPrimary">No dispatch yet</div>
+              <div class="result-detail" id="resultDetail">Choose a rider, then submit a pickup.</div>
+              <div class="result-id" id="resultRequestID">request —</div>
+            </div>
+          </section>
+
+          <section class="control-section" aria-labelledby="realtime-title">
+            <div class="section-title-row">
+              <h2 class="step-title" id="realtime-title"><span class="step-number">4</span>Fleet WebSocket fan-out simulation</h2>
+              <span class="field-hint">11 sockets</span>
+            </div>
+            <div class="live-actions">
+              <button id="startLiveButton" type="button" disabled>Start fleet fan-out</button>
+              <button id="stopLiveButton" type="button" disabled>Stop fleet fan-out</button>
+            </div>
+            <div class="socket-copy" id="socketSummary">Preparing a known 8-driver state before dispatch.</div>
+          </section>
+        </aside>
+      </section>
+
+      <section class="bottom-grid" aria-label="Metrics and event log">
+        <article class="card">
+          <header class="card-header">
+            <div>
+              <h2>Driver stats</h2>
+              <p>Live data from /dispatch/stats for the 8-driver interview fleet</p>
+            </div>
+            <button class="quiet" id="refreshStatsButton" type="button">Refresh</button>
+          </header>
+          <dl class="metrics">
+            <div class="metric">
+              <dt>Total drivers</dt>
+              <dd id="totalDriversStat">—</dd>
+            </div>
+            <div class="metric">
+              <dt>Available drivers</dt>
+              <dd id="availableDriversStat">—</dd>
+            </div>
+          </dl>
+          <div class="stats-meta" id="statsUpdatedAt">Waiting for first response</div>
+        </article>
+
+        <article class="card log-card">
+          <header class="card-header">
+            <div class="log-heading">
+              <div>
+                <h2>Event log</h2>
+                <p>REST responses + aggregated 24-delivery socket ticks · newest first</p>
+              </div>
+              <button class="quiet" id="clearLogButton" type="button">Clear</button>
+            </div>
+          </header>
+          <ol class="log-list" id="eventLog" aria-label="Event log, newest first"></ol>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      <span>Embedded functional demo · browser-simulated motion, not routing or a benchmark.</span>
+      <code>Redis GEO + REST + in-process WebSocket fan-out</code>
+    </footer>
+  </div>
+
+  <script>
+    (() => {
+      "use strict";
+
+      const DEMO_SESSION_STORAGE_KEY = "geo-dispatch-demo-session";
+      const demoSessionID = (() => {
+        try {
+          const existing = window.sessionStorage.getItem(DEMO_SESSION_STORAGE_KEY);
+          if (existing) {
+            return existing;
+          }
+          const created = window.crypto && typeof window.crypto.randomUUID === "function"
+            ? window.crypto.randomUUID()
+            : `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+          window.sessionStorage.setItem(DEMO_SESSION_STORAGE_KEY, created);
+          return created;
+        } catch {
+          return `demo-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+        }
+      })();
+
+      const DRIVER_TEMPLATES = [
+        {
+          id: "demo-driver-01",
+          short: "D1",
+          label: "Bryant Park"
+        },
+        {
+          id: "demo-driver-02",
+          short: "D2",
+          label: "Herald Square"
+        },
+        {
+          id: "demo-driver-03",
+          short: "D3",
+          label: "Flatiron"
+        },
+        {
+          id: "demo-driver-04",
+          short: "D4",
+          label: "Times Square"
+        },
+        {
+          id: "demo-driver-05",
+          short: "D5",
+          label: "Chelsea"
+        },
+        {
+          id: "demo-driver-06",
+          short: "D6",
+          label: "Madison Square"
+        },
+        {
+          id: "demo-driver-07",
+          short: "D7",
+          label: "Rockefeller Center"
+        },
+        {
+          id: "demo-driver-08",
+          short: "D8",
+          label: "Union Square"
+        }
+      ];
+
+      const RIDER_TEMPLATES = [
+        {
+          id: "demo-rider-01",
+          short: "R1",
+          label: "Empire State",
+          longitude: -73.9857,
+          latitude: 40.7484
+        },
+        {
+          id: "demo-rider-02",
+          short: "R2",
+          label: "Times Square",
+          longitude: -73.9855,
+          latitude: 40.7566
+        },
+        {
+          id: "demo-rider-03",
+          short: "R3",
+          label: "Flatiron",
+          longitude: -73.9898,
+          latitude: 40.7414
+        }
+      ];
+
+      const MAP_BOUNDS = {
+        minLongitude: -74.0005,
+        maxLongitude: -73.9735,
+        minLatitude: 40.738,
+        maxLatitude: 40.758
+      };
+
+      const MAP_SVG = {
+        width: 760,
+        height: 510
+      };
+
+      const ROAD_AVENUES = [50, 169, 285, 400, 518, 635, 722].map(
+        (x) => (x / MAP_SVG.width) * 100
+      );
+      const ROAD_STREETS = [36, 105, 186, 267, 347, 428, 474].map(
+        (y) => (y / MAP_SVG.height) * 100
+      );
+      const MAP_VIEWPORT = {
+        left: ROAD_AVENUES[0],
+        right: ROAD_AVENUES[ROAD_AVENUES.length - 1],
+        top: ROAD_STREETS[0],
+        bottom: ROAD_STREETS[ROAD_STREETS.length - 1]
+      };
+      const ROAD_STEP_PX = 22;
+
+      const DRIVER_ROUTES = [
+        routeRectangle(3, 4, 2, 3, 0),
+        routeRectangle(2, 3, 3, 4, 1),
+        routeRectangle(2, 3, 4, 5, 3),
+        routeRectangle(3, 4, 0, 1, 0),
+        routeRectangle(0, 1, 3, 4, 0),
+        routeRectangle(3, 4, 4, 5, 0),
+        routeRectangle(4, 5, 0, 1, 0),
+        routeRectangle(1, 2, 5, 6, 3)
+      ];
+
+      DRIVER_TEMPLATES.forEach((driver, index) => {
+        Object.assign(driver, unprojectPoint(DRIVER_ROUTES[index][0]));
+      });
+
+      const drivers = new Map(
+        DRIVER_TEMPLATES.map((driver) => [driver.id, { ...driver }])
+      );
+      const riders = new Map(
+        RIDER_TEMPLATES.map((rider) => [rider.id, { ...rider }])
+      );
+
+      const elements = {
+        skipLink: document.querySelector(".skip-link"),
+        workspace: document.querySelector(".workspace"),
+        demoControls: document.getElementById("demo-controls"),
+        serviceHealth: document.getElementById("serviceHealth"),
+        serviceHealthText: document.getElementById("serviceHealthText"),
+        redisHealth: document.getElementById("redisHealth"),
+        redisHealthText: document.getElementById("redisHealthText"),
+        refreshHealthButton: document.getElementById("refreshHealthButton"),
+        resetDemoButton: document.getElementById("resetDemoButton"),
+        startLiveButton: document.getElementById("startLiveButton"),
+        stopLiveButton: document.getElementById("stopLiveButton"),
+        liveStatus: document.getElementById("liveStatus"),
+        socketSummary: document.getElementById("socketSummary"),
+        errorBanner: document.getElementById("errorBanner"),
+        errorMessage: document.getElementById("errorMessage"),
+        dismissErrorButton: document.getElementById("dismissErrorButton"),
+        driverLayer: document.getElementById("driverLayer"),
+        riderLayer: document.getElementById("riderLayer"),
+        driverList: document.getElementById("driverList"),
+        riderList: document.getElementById("riderList"),
+        activeRiderSelect: document.getElementById("activeRiderSelect"),
+        pickupLongitude: document.getElementById("pickupLongitude"),
+        pickupLongitudeError: document.getElementById("pickupLongitudeError"),
+        pickupLatitude: document.getElementById("pickupLatitude"),
+        pickupLatitudeError: document.getElementById("pickupLatitudeError"),
+        dispatchRadius: document.getElementById("dispatchRadius"),
+        dispatchRadiusError: document.getElementById("dispatchRadiusError"),
+        dispatchForm: document.getElementById("dispatchForm"),
+        dispatchButton: document.getElementById("dispatchButton"),
+        dispatchResult: document.getElementById("dispatchResult"),
+        resultKicker: document.getElementById("resultKicker"),
+        resultPrimary: document.getElementById("resultPrimary"),
+        resultDetail: document.getElementById("resultDetail"),
+        resultRequestID: document.getElementById("resultRequestID"),
+        mapCoordinateReadout: document.getElementById("mapCoordinateReadout"),
+        totalDriversStat: document.getElementById("totalDriversStat"),
+        availableDriversStat: document.getElementById("availableDriversStat"),
+        statsUpdatedAt: document.getElementById("statsUpdatedAt"),
+        refreshStatsButton: document.getElementById("refreshStatsButton"),
+        eventLog: document.getElementById("eventLog"),
+        clearLogButton: document.getElementById("clearLogButton")
+      };
+
+      let movementTimer = null;
+      let driverLivenessTimer = null;
+      let driverLivenessGeneration = 0;
+      let livenessRefreshPromise = null;
+      let movementTick = 0;
+      let liveGeneration = 0;
+      let activeRiderID = RIDER_TEMPLATES[0].id;
+      let matchedDriverID = "";
+      let riderSockets = new Map();
+      let driverSockets = new Map();
+      let driverRouteStates = new Map();
+      let receivedDriversThisTick = new Set();
+      const intentionalSocketCloses = new WeakSet();
+
+      class ApiError extends Error {
+        constructor(message, status, data) {
+          super(message);
+          this.name = "ApiError";
+          this.status = status;
+          this.data = data;
+        }
+      }
+
+      function formatTime(date = new Date()) {
+        return date.toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false
+        });
+      }
+
+      function addLog(source, message, level = "info") {
+        const entry = document.createElement("li");
+        entry.className = "log-entry";
+        entry.dataset.level = level;
+
+        const time = document.createElement("span");
+        time.className = "log-time";
+        time.textContent = formatTime();
+
+        const sourceNode = document.createElement("span");
+        sourceNode.className = "log-source";
+        sourceNode.textContent = source;
+
+        const messageNode = document.createElement("span");
+        messageNode.className = "log-message";
+        messageNode.textContent = message;
+
+        entry.append(time, sourceNode, messageNode);
+        elements.eventLog.prepend(entry);
+
+        while (elements.eventLog.children.length > 25) {
+          elements.eventLog.lastElementChild.remove();
+        }
+      }
+
+      function showError(message) {
+        elements.errorMessage.textContent = message;
+        elements.errorBanner.hidden = false;
+      }
+
+      function reportError(source, error) {
+        const message = error instanceof Error ? error.message : String(error);
+        showError(message);
+        addLog(source, message, "error");
+      }
+
+      function logError(source, error) {
+        const message = error instanceof Error ? error.message : String(error);
+        addLog(source, message, "error");
+      }
+
+      function setButtonBusy(button, busy, busyLabel, idleLabel) {
+        button.disabled = busy;
+        button.setAttribute("aria-busy", String(busy));
+        button.textContent = busy ? busyLabel : idleLabel;
+      }
+
+      function setDispatchFieldsDisabled(disabled) {
+        [
+          elements.activeRiderSelect,
+          elements.pickupLongitude,
+          elements.pickupLatitude,
+          elements.dispatchRadius
+        ].forEach((field) => {
+          field.disabled = disabled;
+        });
+      }
+
+      async function apiRequest(path, options = {}) {
+        const method = options.method || "GET";
+        const shouldAnnounceErrors = options.announceErrors !== false;
+        const errorSource = options.errorSource || "HTTP";
+        const controller = new AbortController();
+        const timeout = window.setTimeout(() => controller.abort(), 8000);
+        const headers = {
+          Accept: "application/json",
+          ...(options.body ? { "Content-Type": "application/json" } : {}),
+          ...(options.headers || {})
+        };
+
+        try {
+          const response = await fetch(path, {
+            ...options,
+            method,
+            headers,
+            signal: controller.signal
+          });
+          const raw = await response.text();
+          let data = raw;
+
+          if (raw) {
+            try {
+              data = JSON.parse(raw);
+            } catch {
+              data = raw;
+            }
+          } else {
+            data = null;
+          }
+
+          if (!response.ok) {
+            const detail = data && typeof data === "object"
+              ? data.error || data.message || JSON.stringify(data)
+              : data || response.statusText;
+            throw new ApiError(
+              `${method} ${path} returned ${response.status}: ${detail}`,
+              response.status,
+              data
+            );
+          }
+
+          return data;
+        } catch (error) {
+          const normalized = error && error.name === "AbortError"
+            ? new Error(`${method} ${path} timed out`)
+            : error;
+          if (shouldAnnounceErrors) {
+            reportError(errorSource, normalized);
+          } else {
+            logError(errorSource, normalized);
+          }
+          throw normalized;
+        } finally {
+          window.clearTimeout(timeout);
+        }
+      }
+
+      function setHealth(element, textElement, state, text, title) {
+        element.dataset.state = state;
+        element.title = title;
+        textElement.textContent = text;
+      }
+
+      async function refreshHealth() {
+        elements.refreshHealthButton.disabled = true;
+        setHealth(
+          elements.serviceHealth,
+          elements.serviceHealthText,
+          "checking",
+          "Checking",
+          "Checking /health"
+        );
+        setHealth(
+          elements.redisHealth,
+          elements.redisHealthText,
+          "checking",
+          "Checking",
+          "Checking /ping"
+        );
+
+        const [serviceResult, redisResult] = await Promise.allSettled([
+          apiRequest("/health", { announceErrors: false, errorSource: "HEALTH" }),
+          apiRequest("/ping", { announceErrors: false, errorSource: "HEALTH" })
+        ]);
+
+        if (serviceResult.status === "fulfilled" && serviceResult.value === "OK") {
+          setHealth(
+            elements.serviceHealth,
+            elements.serviceHealthText,
+            "online",
+            "Online",
+            "/health returned OK"
+          );
+        } else {
+          setHealth(
+            elements.serviceHealth,
+            elements.serviceHealthText,
+            "offline",
+            "Offline",
+            "/health did not return OK"
+          );
+        }
+
+        if (
+          redisResult.status === "fulfilled" &&
+          redisResult.value &&
+          redisResult.value.Redis === "PONG"
+        ) {
+          setHealth(
+            elements.redisHealth,
+            elements.redisHealthText,
+            "online",
+            "Connected",
+            "/ping returned Redis PONG"
+          );
+        } else {
+          setHealth(
+            elements.redisHealth,
+            elements.redisHealthText,
+            "offline",
+            "Unavailable",
+            "/ping did not return Redis PONG"
+          );
+        }
+
+        elements.refreshHealthButton.disabled = false;
+        addLog("HEALTH", "Service and Redis checks completed");
+      }
+
+      function roadPoint(avenueIndex, streetIndex) {
+        return {
+          left: ROAD_AVENUES[avenueIndex],
+          top: ROAD_STREETS[streetIndex]
+        };
+      }
+
+      function routeRectangle(left, right, top, bottom, startIndex = 0) {
+        const corners = [
+          roadPoint(left, top),
+          roadPoint(right, top),
+          roadPoint(right, bottom),
+          roadPoint(left, bottom)
+        ];
+        return corners.slice(startIndex).concat(corners.slice(0, startIndex));
+      }
+
+      function unprojectPoint(leftOrPoint, topValue) {
+        const point = typeof leftOrPoint === "object"
+          ? leftOrPoint
+          : { left: leftOrPoint, top: topValue };
+        const longitudeRatio = (
+          (point.left - MAP_VIEWPORT.left) /
+          (MAP_VIEWPORT.right - MAP_VIEWPORT.left)
+        );
+        const latitudeRatio = (
+          (point.top - MAP_VIEWPORT.top) /
+          (MAP_VIEWPORT.bottom - MAP_VIEWPORT.top)
+        );
+
+        return {
+          longitude:
+            MAP_BOUNDS.minLongitude +
+            longitudeRatio * (MAP_BOUNDS.maxLongitude - MAP_BOUNDS.minLongitude),
+          latitude:
+            MAP_BOUNDS.maxLatitude -
+            latitudeRatio * (MAP_BOUNDS.maxLatitude - MAP_BOUNDS.minLatitude)
+        };
+      }
+
+      function nearlyEqual(first, second) {
+        return Math.abs(first - second) < 0.000001;
+      }
+
+      function validateDriverRoutes() {
+        DRIVER_ROUTES.forEach((route, routeIndex) => {
+          if (route.length < 2) {
+            throw new Error(`Driver route ${routeIndex + 1} needs at least two points`);
+          }
+
+          route.forEach((point, pointIndex) => {
+            const next = route[(pointIndex + 1) % route.length];
+            const sameAvenue =
+              nearlyEqual(point.left, next.left) &&
+              ROAD_AVENUES.some((left) => nearlyEqual(point.left, left));
+            const sameStreet =
+              nearlyEqual(point.top, next.top) &&
+              ROAD_STREETS.some((top) => nearlyEqual(point.top, top));
+            const hasDistance =
+              !nearlyEqual(point.left, next.left) ||
+              !nearlyEqual(point.top, next.top);
+
+            if (!hasDistance || (!sameAvenue && !sameStreet)) {
+              throw new Error(
+                `Driver route ${routeIndex + 1} must follow one road axis at a time`
+              );
+            }
+          });
+        });
+      }
+
+      function resetDriverRouteStates() {
+        validateDriverRoutes();
+        driverRouteStates = new Map(
+          DRIVER_TEMPLATES.map((driver, routeIndex) => {
+            const start = DRIVER_ROUTES[routeIndex][0];
+            return [
+              driver.id,
+              {
+                routeIndex,
+                targetIndex: 1,
+                left: start.left,
+                top: start.top
+              }
+            ];
+          })
+        );
+      }
+
+      function advanceDriverRoute(driverID) {
+        const state = driverRouteStates.get(driverID);
+        if (!state) {
+          throw new Error(`Missing road route for ${driverID}`);
+        }
+
+        const route = DRIVER_ROUTES[state.routeIndex];
+        const target = route[state.targetIndex];
+        const deltaLeft = target.left - state.left;
+        const deltaTop = target.top - state.top;
+        const distancePx = Math.hypot(
+          (deltaLeft / 100) * MAP_SVG.width,
+          (deltaTop / 100) * MAP_SVG.height
+        );
+        const ratio = Math.min(1, ROAD_STEP_PX / distancePx);
+
+        state.left = ratio === 1
+          ? target.left
+          : state.left + deltaLeft * ratio;
+        state.top = ratio === 1
+          ? target.top
+          : state.top + deltaTop * ratio;
+        if (ratio === 1) {
+          state.targetIndex = (state.targetIndex + 1) % route.length;
+        }
+
+        const heading = Math.abs(deltaLeft) > Math.abs(deltaTop)
+          ? deltaLeft > 0 ? 90 : 270
+          : deltaTop > 0 ? 180 : 0;
+
+        return {
+          ...unprojectPoint(state.left, state.top),
+          heading
+        };
+      }
+
+      function projectPoint(longitude, latitude) {
+        const longitudeRatio = (
+          (longitude - MAP_BOUNDS.minLongitude) /
+          (MAP_BOUNDS.maxLongitude - MAP_BOUNDS.minLongitude)
+        );
+        const latitudeRatio = (
+          (MAP_BOUNDS.maxLatitude - latitude) /
+          (MAP_BOUNDS.maxLatitude - MAP_BOUNDS.minLatitude)
+        );
+
+        return {
+          left:
+            MAP_VIEWPORT.left +
+            Math.min(1, Math.max(0, longitudeRatio)) *
+              (MAP_VIEWPORT.right - MAP_VIEWPORT.left),
+          top:
+            MAP_VIEWPORT.top +
+            Math.min(1, Math.max(0, latitudeRatio)) *
+              (MAP_VIEWPORT.bottom - MAP_VIEWPORT.top)
+        };
+      }
+
+      function positionMarker(element, longitude, latitude) {
+        const point = projectPoint(longitude, latitude);
+        element.style.left = `${point.left}%`;
+        element.style.top = `${point.top}%`;
+      }
+
+      function renderDrivers() {
+        elements.driverLayer.replaceChildren();
+        elements.driverList.replaceChildren();
+
+        DRIVER_TEMPLATES.forEach((template, index) => {
+          const tone = `tone-${(index % 4) + 1}`;
+          const marker = document.createElement("div");
+          marker.className = `map-marker ${tone}`;
+          marker.id = `pin-${template.id}`;
+          marker.setAttribute("role", "img");
+
+          const pin = document.createElement("span");
+          pin.className = "pin";
+          pin.setAttribute("aria-hidden", "true");
+          pin.textContent = template.short;
+
+          const markerLabel = document.createElement("span");
+          markerLabel.className = "marker-label";
+          markerLabel.setAttribute("aria-hidden", "true");
+          markerLabel.textContent = `${template.short} · ${template.label}`;
+          marker.append(pin, markerLabel);
+          elements.driverLayer.append(marker);
+
+          const row = document.createElement("div");
+          row.className = "driver-row";
+
+          const avatar = document.createElement("span");
+          avatar.className = `driver-avatar ${tone}`;
+          avatar.setAttribute("aria-hidden", "true");
+          avatar.textContent = template.short;
+
+          const name = document.createElement("span");
+          name.className = "driver-name";
+          name.textContent = template.label;
+
+          const state = document.createElement("span");
+          state.className = "driver-state";
+          state.id = `state-${template.id}`;
+          state.dataset.state = "idle";
+          state.textContent = "idle";
+
+          row.append(avatar, name, state);
+          elements.driverList.append(row);
+        });
+      }
+
+      function renderRiders() {
+        elements.riderLayer.replaceChildren();
+        elements.riderList.replaceChildren();
+        elements.activeRiderSelect.replaceChildren();
+
+        RIDER_TEMPLATES.forEach((template) => {
+          const marker = document.createElement("div");
+          marker.className = "map-marker rider";
+          marker.id = `pin-${template.id}`;
+          marker.setAttribute("role", "img");
+
+          const pin = document.createElement("span");
+          pin.className = "pin";
+          pin.setAttribute("aria-hidden", "true");
+          const pinText = document.createElement("span");
+          pinText.textContent = template.short;
+          pin.append(pinText);
+
+          const markerLabel = document.createElement("span");
+          markerLabel.className = "marker-label";
+          markerLabel.setAttribute("aria-hidden", "true");
+          markerLabel.textContent = `${template.short} · ${template.label}`;
+          marker.append(pin, markerLabel);
+          elements.riderLayer.append(marker);
+
+          const option = document.createElement("option");
+          option.value = template.id;
+          option.textContent = `${template.short} · ${template.label}`;
+          elements.activeRiderSelect.append(option);
+
+          const row = document.createElement("div");
+          row.className = "rider-row";
+          row.setAttribute("role", "listitem");
+          row.dataset.riderId = template.id;
+          row.dataset.active = "false";
+
+          const avatar = document.createElement("span");
+          avatar.className = "rider-avatar";
+          avatar.setAttribute("aria-hidden", "true");
+          avatar.textContent = template.short;
+
+          const name = document.createElement("span");
+          name.className = "rider-name";
+          name.textContent = template.label;
+
+          const state = document.createElement("span");
+          state.className = "rider-state";
+          state.textContent = "request";
+
+          row.append(avatar, name, state);
+          elements.riderList.append(row);
+        });
+      }
+
+      function selectActiveRider(riderID, options = {}) {
+        const { resetResult = true } = options;
+        const rider = riders.get(riderID);
+        if (!rider) {
+          return;
+        }
+
+        activeRiderID = riderID;
+        elements.activeRiderSelect.value = riderID;
+        elements.pickupLongitude.value = rider.longitude.toFixed(4);
+        elements.pickupLatitude.value = rider.latitude.toFixed(4);
+
+        for (const template of RIDER_TEMPLATES) {
+          const isActive = template.id === riderID;
+          const marker = document.getElementById(`pin-${template.id}`);
+          const row = elements.riderList.querySelector(`[data-rider-id="${template.id}"]`);
+          if (marker) {
+            marker.classList.toggle("active-request", isActive);
+          }
+          if (row) {
+            row.dataset.active = String(isActive);
+            if (isActive) {
+              row.setAttribute("aria-current", "true");
+            } else {
+              row.removeAttribute("aria-current");
+            }
+            const state = row.querySelector(".rider-state");
+            if (state) {
+              state.textContent = isActive ? "active" : "request";
+            }
+          }
+        }
+
+        updatePickupMarker();
+        if (resetResult) {
+          stopLiveMovement(false);
+          resetDispatchResult();
+          addLog("UI", `${rider.short} · ${rider.label} selected`);
+        }
+      }
+
+      function updatePickupMarker() {
+        const longitude = Number(elements.pickupLongitude.value);
+        const latitude = Number(elements.pickupLatitude.value);
+        const validLongitude = Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+        const validLatitude = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90;
+
+        syncDispatchFieldState(elements.pickupLongitude, elements.pickupLongitudeError, validLongitude);
+        syncDispatchFieldState(elements.pickupLatitude, elements.pickupLatitudeError, validLatitude);
+
+        if (!validLongitude || !validLatitude) {
+          return;
+        }
+
+        const rider = riders.get(activeRiderID);
+        if (!rider) {
+          return;
+        }
+        rider.longitude = longitude;
+        rider.latitude = latitude;
+
+        const pickupPin = document.getElementById(`pin-${activeRiderID}`);
+        if (pickupPin) {
+          positionMarker(pickupPin, longitude, latitude);
+          pickupPin.setAttribute(
+            "aria-label",
+            `${rider.short} ${rider.label} pickup at longitude ${longitude.toFixed(5)}, latitude ${latitude.toFixed(5)}`
+          );
+        }
+        elements.mapCoordinateReadout.textContent =
+          `Active ${activeRiderID} · ${longitude.toFixed(5)}, ${latitude.toFixed(5)}`;
+      }
+
+      function updateDriverMarker(driver, options = {}) {
+        const { animate = true } = options;
+        const pin = document.getElementById(`pin-${driver.id}`);
+        if (!pin) {
+          return;
+        }
+        if (!animate) {
+          pin.classList.add("route-snap");
+        }
+        positionMarker(pin, driver.longitude, driver.latitude);
+        if (!animate) {
+          void pin.offsetWidth;
+          pin.classList.remove("route-snap");
+        }
+        pin.setAttribute(
+          "aria-label",
+          `${driver.id} at longitude ${driver.longitude.toFixed(5)}, latitude ${driver.latitude.toFixed(5)}`
+        );
+      }
+
+      function clearMatchedDriver() {
+        for (const driver of DRIVER_TEMPLATES) {
+          const pin = document.getElementById(`pin-${driver.id}`);
+          if (pin) {
+            pin.classList.remove("matched");
+          }
+        }
+        matchedDriverID = "";
+      }
+
+      function setDriverState(driverID, state) {
+        const stateNode = document.getElementById(`state-${driverID}`);
+        if (!stateNode) {
+          return;
+        }
+        stateNode.dataset.state = state;
+        stateNode.textContent = state;
+      }
+
+      function resetDispatchResult() {
+        clearMatchedDriver();
+        elements.dispatchResult.dataset.state = "idle";
+        elements.resultKicker.textContent = "Ready";
+        elements.resultPrimary.textContent = "No dispatch yet";
+        elements.resultDetail.textContent = "Choose a rider, then submit a pickup.";
+        elements.resultRequestID.textContent = "request —";
+        setLiveUI("locked");
+      }
+
+      function syncDispatchFieldState(input, errorNode, isValid) {
+        input.setAttribute("aria-invalid", String(!isValid));
+        errorNode.hidden = isValid;
+      }
+
+      function validateDispatchInput(options = {}) {
+        const { focusInvalid = false, announceError = true } = options;
+        const longitude = Number(elements.pickupLongitude.value);
+        const latitude = Number(elements.pickupLatitude.value);
+        const radius = Number(elements.dispatchRadius.value);
+        const validLongitude = Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
+        const validLatitude = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90;
+        const validRadius = Number.isFinite(radius) && radius >= 0.1 && radius <= 25;
+        const fieldStates = [
+          [elements.pickupLongitude, elements.pickupLongitudeError, validLongitude],
+          [elements.pickupLatitude, elements.pickupLatitudeError, validLatitude],
+          [elements.dispatchRadius, elements.dispatchRadiusError, validRadius]
+        ];
+
+        fieldStates.forEach(([input, errorNode, isValid]) => {
+          syncDispatchFieldState(input, errorNode, isValid);
+        });
+
+        const firstInvalidField = fieldStates.find(([, , isValid]) => !isValid);
+        if (!firstInvalidField) {
+          return { longitude, latitude, radius };
+        }
+
+        if (focusInvalid) {
+          firstInvalidField[0].focus();
+        }
+
+        if (announceError) {
+          reportError("FORM", new Error("Enter valid coordinates and a radius between 0.1 and 25 km."));
+        }
+        return null;
+      }
+
+      function stopDriverLivenessRefresh() {
+        driverLivenessGeneration += 1;
+        if (driverLivenessTimer) {
+          window.clearInterval(driverLivenessTimer);
+          driverLivenessTimer = null;
+        }
+      }
+
+      async function waitForDriverLivenessRefresh() {
+        if (livenessRefreshPromise) {
+          await livenessRefreshPromise;
+        }
+      }
+
+      async function claimDemoSession(options = {}) {
+        const { force = false, clearLocks = false } = options;
+        return apiRequest("/demo/reset", {
+          method: "POST",
+          body: JSON.stringify({
+            session_id: demoSessionID,
+            force,
+            clear_locks: clearLocks
+          }),
+          announceErrors: false,
+          errorSource: "SESSION"
+        });
+      }
+
+      function handleDemoSessionFailure(error) {
+        stopDriverLivenessRefresh();
+        stopLiveMovement(false);
+        resetDispatchResult();
+        elements.dispatchButton.disabled = true;
+        elements.dispatchButton.setAttribute("aria-busy", "false");
+        elements.dispatchButton.textContent = "Find nearest driver";
+        elements.resetDemoButton.disabled = false;
+        elements.resetDemoButton.setAttribute("aria-busy", "false");
+        elements.resetDemoButton.textContent = "Reset to known state";
+        setDispatchFieldsDisabled(true);
+        setLiveUI("error");
+
+        if (error instanceof ApiError && error.status === 409) {
+          showError(
+            "This demo is active in another tab. Click Reset to known state to take over."
+          );
+          return;
+        }
+        showError("Could not prepare the demo session. Check the service, then reset and try again.");
+      }
+
+      async function refreshDriverLiveness(options = {}) {
+        const { announceError = false } = options;
+        if (movementTimer) {
+          return true;
+        }
+
+        if (!livenessRefreshPromise) {
+          const pendingRefresh = Promise.all(DRIVER_TEMPLATES.map((template) => {
+            const driver = drivers.get(template.id) || template;
+            return apiRequest("/driver/location", {
+              method: "POST",
+              body: JSON.stringify({
+                driver_id: driver.id,
+                longitude: driver.longitude,
+                latitude: driver.latitude
+              }),
+              announceErrors: false,
+              errorSource: "LIVENESS"
+            });
+          }))
+            .then(() => true)
+            .catch(() => false);
+          livenessRefreshPromise = pendingRefresh;
+          void pendingRefresh.finally(() => {
+            if (livenessRefreshPromise === pendingRefresh) {
+              livenessRefreshPromise = null;
+            }
+          });
+        }
+
+        const refreshed = await livenessRefreshPromise;
+        if (!refreshed && announceError) {
+          showError("Could not refresh the demo fleet. Reset to the known state and try again.");
+        }
+        return refreshed;
+      }
+
+      function startDriverLivenessRefresh() {
+        stopDriverLivenessRefresh();
+        const generation = driverLivenessGeneration;
+        driverLivenessTimer = window.setInterval(async () => {
+          try {
+            await claimDemoSession({ force: false, clearLocks: false });
+          } catch (error) {
+            if (generation === driverLivenessGeneration) {
+              handleDemoSessionFailure(error);
+            }
+            return;
+          }
+          if (generation !== driverLivenessGeneration) {
+            return;
+          }
+          await refreshDriverLiveness();
+        }, 15000);
+      }
+
+      async function seedDrivers(options = {}) {
+        const { force = false } = options;
+        stopLiveMovement(false);
+        stopDriverLivenessRefresh();
+        resetDispatchResult();
+        resetDriverRouteStates();
+        elements.resetDemoButton.disabled = true;
+        elements.dispatchButton.disabled = true;
+        setDispatchFieldsDisabled(true);
+        elements.resetDemoButton.setAttribute("aria-busy", "true");
+        elements.resetDemoButton.textContent = "Preparing known state…";
+        setLiveUI("initializing");
+        const failures = [];
+
+        await waitForDriverLivenessRefresh();
+
+        try {
+          await claimDemoSession({ force, clearLocks: true });
+          addLog("RESET", "Cleared assignment locks for the fixed demo fleet");
+        } catch (error) {
+          failures.push(...DRIVER_TEMPLATES.map((driver) => driver.id));
+          DRIVER_TEMPLATES.forEach((driver) => setDriverState(driver.id, "error"));
+          handleDemoSessionFailure(error);
+          return failures;
+        }
+
+        await Promise.all(DRIVER_TEMPLATES.map(async (template) => {
+          const driver = { ...template };
+          drivers.set(driver.id, driver);
+          updateDriverMarker(driver, { animate: false });
+          setDriverState(driver.id, "seeding");
+
+          try {
+            await apiRequest("/driver/location", {
+              method: "POST",
+              body: JSON.stringify({
+                driver_id: driver.id,
+                longitude: driver.longitude,
+                latitude: driver.latitude
+              })
+            });
+            await apiRequest("/driver/status", {
+              method: "POST",
+              body: JSON.stringify({
+                driver_id: driver.id,
+                status: "available"
+              })
+            });
+            setDriverState(driver.id, "available");
+          } catch (error) {
+            failures.push(driver.id);
+            setDriverState(driver.id, "error");
+          }
+        }));
+
+        await refreshStats();
+        elements.resetDemoButton.disabled = false;
+        elements.dispatchButton.disabled = failures.length > 0;
+        elements.resetDemoButton.setAttribute("aria-busy", "false");
+        elements.resetDemoButton.textContent = "Reset to known state";
+
+        if (failures.length === 0) {
+          setDispatchFieldsDisabled(false);
+          startDriverLivenessRefresh();
+          setLiveUI("locked");
+          addLog("SEED", "8/8 Manhattan drivers are available", "success");
+        } else {
+          setLiveUI("error");
+          showError(`Could not seed ${failures.join(", ")}. See the event log for details.`);
+        }
+        return failures;
+      }
+
+      async function resetInterviewDemo(options = {}) {
+        const { scrollToTop = true, force = false } = options;
+        stopLiveMovement(false);
+        elements.eventLog.replaceChildren();
+        elements.errorBanner.hidden = true;
+        elements.dispatchRadius.value = "5";
+        selectActiveRider(RIDER_TEMPLATES[0].id, { resetResult: false });
+        resetDispatchResult();
+        validateDispatchInput({ announceError: false });
+        addLog("DEMO", "Preparing deterministic 8-driver state");
+
+        const failures = await seedDrivers({ force });
+        if (failures.length === 0) {
+          addLog(
+            "DEMO",
+            "Known state ready · 8 drivers · 3 riders · dispatch to unlock fleet fan-out",
+            "success"
+          );
+        }
+
+        if (scrollToTop) {
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+        }
+        return failures;
+      }
+
+      function renderDispatchResult(result) {
+        clearMatchedDriver();
+        const success = Boolean(result && result.success);
+        elements.dispatchResult.dataset.state = success ? "matched" : "failed";
+        elements.resultKicker.textContent = success ? "Driver matched" : "No match";
+        elements.resultRequestID.textContent =
+          `request ${result && result.request_id ? result.request_id : "—"}`;
+
+        if (success) {
+          const distance = Number(result.distance_km);
+          const distanceText = Number.isFinite(distance)
+            ? `${distance.toFixed(3)} km Redis GEO straight-line distance`
+            : "Distance unavailable";
+          elements.resultPrimary.textContent = result.driver_id || "Matched driver";
+          elements.resultDetail.textContent = distanceText;
+          matchedDriverID = result.driver_id || "";
+          const pin = document.getElementById(`pin-${result.driver_id}`);
+          if (pin) {
+            pin.classList.add("matched");
+          }
+          setDriverState(result.driver_id, "busy");
+          setLiveUI("ready");
+          addLog(
+            "MATCH",
+            `${result.driver_id} assigned · ${distanceText}`,
+            "success"
+          );
+        } else {
+          elements.resultPrimary.textContent = "No driver assigned";
+          elements.resultDetail.textContent =
+            result && result.error ? result.error : "Dispatch request failed.";
+          addLog(
+            "MATCH",
+            elements.resultDetail.textContent,
+            "error"
+          );
+          setLiveUI("locked");
+        }
+      }
+
+      async function requestDispatch(event) {
+        event.preventDefault();
+        const input = validateDispatchInput({ focusInvalid: true, announceError: true });
+        if (!input) {
+          return;
+        }
+        elements.errorBanner.hidden = true;
+        elements.resetDemoButton.disabled = true;
+        setDispatchFieldsDisabled(true);
+
+        setButtonBusy(
+          elements.dispatchButton,
+          true,
+          "Finding nearest driver…",
+          "Find nearest driver"
+        );
+
+        try {
+          await claimDemoSession({ force: false, clearLocks: false });
+        } catch (error) {
+          handleDemoSessionFailure(error);
+          return;
+        }
+
+        const fleetIsLive = await refreshDriverLiveness({ announceError: true });
+        if (!fleetIsLive) {
+          setButtonBusy(
+            elements.dispatchButton,
+            false,
+            "Finding nearest driver…",
+            "Find nearest driver"
+          );
+          elements.resetDemoButton.disabled = false;
+          setDispatchFieldsDisabled(false);
+          return;
+        }
+
+        const requestID = `demo-request-${Date.now().toString(36)}`;
+        addLog(
+          "HTTP",
+          `Dispatching from ${input.longitude.toFixed(4)}, ${input.latitude.toFixed(4)}`
+        );
+
+        try {
+          const result = await apiRequest("/dispatch/request", {
+            method: "POST",
+            body: JSON.stringify({
+              request_id: requestID,
+              longitude: input.longitude,
+              latitude: input.latitude,
+              radius_km: input.radius
+            })
+          });
+          renderDispatchResult(result);
+        } catch (error) {
+          if (error instanceof ApiError && error.data && typeof error.data === "object") {
+            renderDispatchResult(error.data);
+          } else {
+            renderDispatchResult({
+              success: false,
+              request_id: requestID,
+              error: error instanceof Error ? error.message : String(error)
+            });
+          }
+        } finally {
+          setButtonBusy(
+            elements.dispatchButton,
+            false,
+            "Finding nearest driver…",
+            "Find nearest driver"
+          );
+          const hasMatch = Boolean(matchedDriverID);
+          elements.dispatchButton.disabled = hasMatch;
+          elements.resetDemoButton.disabled = false;
+          setDispatchFieldsDisabled(hasMatch);
+          await refreshStats();
+        }
+      }
+
+      async function refreshStats() {
+        elements.refreshStatsButton.disabled = true;
+        try {
+          const stats = await apiRequest("/dispatch/stats", {
+            announceErrors: false,
+            errorSource: "STATS"
+          });
+          const total = Number(stats && stats.total_drivers);
+          const available = Number(stats && stats.available_drivers);
+          elements.totalDriversStat.textContent = Number.isFinite(total) ? String(total) : "—";
+          elements.availableDriversStat.textContent =
+            Number.isFinite(available) ? String(available) : "—";
+          elements.statsUpdatedAt.textContent =
+            `Last response ${formatTime()} · GET /dispatch/stats`;
+        } catch {
+          elements.totalDriversStat.textContent = "—";
+          elements.availableDriversStat.textContent = "—";
+          elements.statsUpdatedAt.textContent = `Request failed at ${formatTime()}`;
+        } finally {
+          elements.refreshStatsButton.disabled = false;
+        }
+      }
+
+      function websocketURL(path) {
+        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+        return `${protocol}//${window.location.host}${path}`;
+      }
+
+      function openSocket(path, label) {
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const socket = new WebSocket(websocketURL(path));
+          const timeout = window.setTimeout(() => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            intentionalSocketCloses.add(socket);
+            socket.close(1000, "Connection timed out");
+            reject(new Error(`${label} WebSocket timed out while connecting`));
+          }, 6000);
+
+          socket.addEventListener("open", () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            window.clearTimeout(timeout);
+            resolve(socket);
+          }, { once: true });
+
+          socket.addEventListener("error", () => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            window.clearTimeout(timeout);
+            reject(new Error(`${label} WebSocket could not connect`));
+          }, { once: true });
+
+          socket.addEventListener("close", (event) => {
+            if (settled) {
+              return;
+            }
+            settled = true;
+            window.clearTimeout(timeout);
+            reject(new Error(
+              `${label} WebSocket closed during connection (${event.code})`
+            ));
+          }, { once: true });
+        });
+      }
+
+      function attachSocketHealthHandlers(socket, label) {
+        socket.addEventListener("error", () => {
+          if (intentionalSocketCloses.has(socket)) {
+            return;
+          }
+          reportError("WS", new Error(`${label} WebSocket error`));
+        });
+
+        socket.addEventListener("close", (event) => {
+          if (intentionalSocketCloses.has(socket)) {
+            return;
+          }
+          const reason = event.reason ? `: ${event.reason}` : "";
+          reportError(
+            "WS",
+            new Error(`${label} WebSocket closed unexpectedly (${event.code})${reason}`)
+          );
+          stopLiveMovement(false);
+        });
+      }
+
+      function sendSocketMessage(socket, message, label) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          reportError("WS", new Error(`${label} WebSocket is not open`));
+          return false;
+        }
+
+        try {
+          socket.send(JSON.stringify(message));
+          return true;
+        } catch (error) {
+          reportError("WS", error);
+          return false;
+        }
+      }
+
+      function handleRiderMessage(event, riderID) {
+        const frames = String(event.data).split(/\n+/).filter(Boolean);
+
+        for (const frame of frames) {
+          let message;
+          try {
+            message = JSON.parse(frame);
+          } catch {
+            reportError("WS", new Error("Rider received an invalid JSON frame"));
+            continue;
+          }
+
+          if (message.type === "driver_location" && message.payload) {
+            const payload = message.payload;
+            const driver = drivers.get(payload.driver_id);
+            const longitude = Number(payload.longitude);
+            const latitude = Number(payload.latitude);
+
+            if (!driver || !Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+              reportError("WS", new Error("Rider received an invalid driver_location payload"));
+              continue;
+            }
+
+            driver.longitude = longitude;
+            driver.latitude = latitude;
+            updateDriverMarker(driver);
+            receivedDriversThisTick.add(`${riderID}:${driver.id}`);
+            if (
+              receivedDriversThisTick.size ===
+              DRIVER_TEMPLATES.length * RIDER_TEMPLATES.length
+            ) {
+              addLog(
+                "LIVE",
+                `Tick ${movementTick} · 24 deliveries (8 positions × 3 riders) · 11/11 sockets`
+              );
+              receivedDriversThisTick.clear();
+            }
+          } else if (message.type === "error") {
+            const payload = message.payload || {};
+            reportError(
+              "WS",
+              new Error(payload.message || payload.code || "WebSocket server error")
+            );
+          }
+        }
+      }
+
+      function sendDriverLocations() {
+        movementTick += 1;
+        receivedDriversThisTick.clear();
+
+        DRIVER_TEMPLATES.forEach((template, index) => {
+          const socket = driverSockets.get(template.id);
+          const {
+            longitude,
+            latitude,
+            heading
+          } = advanceDriverRoute(template.id);
+
+          sendSocketMessage(
+            socket,
+            {
+              type: "location_update",
+              timestamp: Date.now(),
+              payload: {
+                longitude,
+                latitude,
+                heading,
+                speed: 22 + index,
+                accuracy: 5
+              }
+            },
+            template.id
+          );
+        });
+      }
+
+      function setLiveUI(state, connectedCount = 0) {
+        const isConnecting = state === "connecting";
+        const isLive = state === "live";
+        const isReady = state === "ready";
+        const isInitializing = state === "initializing";
+        const isError = state === "error";
+        elements.startLiveButton.disabled = !isReady;
+        elements.stopLiveButton.disabled = !isConnecting && !isLive;
+        elements.startLiveButton.setAttribute("aria-busy", String(isConnecting));
+        elements.startLiveButton.textContent = isConnecting
+          ? "Connecting 11 sockets…"
+          : "Start fleet fan-out";
+        elements.liveStatus.dataset.state = state;
+        if (isConnecting) {
+          elements.liveStatus.textContent = `Connecting ${connectedCount}/11`;
+          elements.socketSummary.textContent =
+            `${connectedCount}/11 sockets open · preparing 3 riders + 8 drivers`;
+        } else if (isLive) {
+          elements.liveStatus.textContent = "Live · 11 sockets";
+          elements.socketSummary.textContent =
+            "8 browser-simulated driver producers → 3 rider subscribers · 24 deliveries/tick";
+        } else if (isReady) {
+          elements.liveStatus.textContent = "Ready for fan-out";
+          elements.socketSummary.textContent =
+            "Match confirmed · start the functional 11-socket fleet simulation";
+        } else if (isInitializing) {
+          elements.liveStatus.textContent = "Preparing known state";
+          elements.socketSummary.textContent =
+            "Seeding eight fixed drivers before dispatch is enabled.";
+        } else if (isError) {
+          elements.liveStatus.textContent = "Reset failed";
+          elements.socketSummary.textContent =
+            "Restore the service connection, then reset to the known state.";
+        } else {
+          elements.liveStatus.textContent = "Ready to dispatch";
+          elements.socketSummary.textContent =
+            "Known state ready · dispatch once to unlock the fleet fan-out.";
+        }
+      }
+
+      async function startLiveMovement() {
+        if (
+          movementTimer ||
+          riderSockets.size > 0 ||
+          driverSockets.size > 0 ||
+          !matchedDriverID
+        ) {
+          return;
+        }
+
+        const generation = ++liveGeneration;
+        setLiveUI("connecting", 0);
+        movementTick = 0;
+        receivedDriversThisTick = new Set();
+        if (driverRouteStates.size !== DRIVER_TEMPLATES.length) {
+          resetDriverRouteStates();
+        }
+        addLog("WS", "Opening 3 rider and 8 driver connections");
+
+        try {
+          await claimDemoSession({ force: false, clearLocks: false });
+        } catch (error) {
+          if (generation === liveGeneration) {
+            handleDemoSessionFailure(error);
+          }
+          return;
+        }
+        if (generation !== liveGeneration) {
+          return;
+        }
+
+        try {
+          for (const rider of RIDER_TEMPLATES) {
+            const socket = await openSocket(
+              `/ws/rider?rider_id=${encodeURIComponent(rider.id)}`,
+              rider.id
+            );
+            if (generation !== liveGeneration) {
+              intentionalSocketCloses.add(socket);
+              socket.close(1000, "Demo cancelled");
+              return;
+            }
+
+            riderSockets.set(rider.id, socket);
+            attachSocketHealthHandlers(socket, rider.id);
+            socket.addEventListener("message", (event) => {
+              handleRiderMessage(event, rider.id);
+            });
+            setLiveUI("connecting", riderSockets.size + driverSockets.size);
+
+            for (const driver of DRIVER_TEMPLATES) {
+              sendSocketMessage(
+                socket,
+                {
+                  type: "subscribe",
+                  timestamp: Date.now(),
+                  payload: { driver_id: driver.id }
+                },
+                rider.id
+              );
+            }
+          }
+          addLog("WS", "3 riders subscribed to all 8 driver IDs", "success");
+
+          for (let index = 0; index < DRIVER_TEMPLATES.length; index += 1) {
+            const driver = DRIVER_TEMPLATES[index];
+            const socket = await openSocket(
+              `/ws/driver?driver_id=${encodeURIComponent(driver.id)}`,
+              driver.id
+            );
+            if (generation !== liveGeneration) {
+              intentionalSocketCloses.add(socket);
+              socket.close(1000, "Demo cancelled");
+              return;
+            }
+            driverSockets.set(driver.id, socket);
+            attachSocketHealthHandlers(socket, driver.id);
+            setLiveUI("connecting", riderSockets.size + driverSockets.size);
+          }
+
+          sendDriverLocations();
+          movementTimer = window.setInterval(sendDriverLocations, 1000);
+          setLiveUI("live");
+          addLog("WS", "Fleet fan-out started · 11 WebSockets open", "success");
+          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+          elements.workspace.scrollIntoView({
+            behavior: reduceMotion ? "auto" : "smooth",
+            block: "start"
+          });
+        } catch (error) {
+          if (generation === liveGeneration) {
+            reportError("WS", error);
+            stopLiveMovement(false);
+          }
+        }
+      }
+
+      function stopLiveMovement(logEvent = true) {
+        liveGeneration += 1;
+        if (movementTimer) {
+          window.clearInterval(movementTimer);
+          movementTimer = null;
+        }
+
+        const sockets = [
+          ...riderSockets.values(),
+          ...driverSockets.values()
+        ].filter(Boolean);
+
+        for (const socket of sockets) {
+          intentionalSocketCloses.add(socket);
+          if (
+            socket.readyState === WebSocket.OPEN ||
+            socket.readyState === WebSocket.CONNECTING
+          ) {
+            socket.close(1000, "Demo stopped");
+          }
+        }
+
+        riderSockets = new Map();
+        driverSockets = new Map();
+        receivedDriversThisTick.clear();
+        setLiveUI(matchedDriverID ? "ready" : "locked");
+
+        if (logEvent && sockets.length > 0) {
+          addLog("WS", "Fleet fan-out stopped");
+        }
+      }
+
+      function initializeMap() {
+        resetDriverRouteStates();
+        renderDrivers();
+        renderRiders();
+
+        for (const rider of riders.values()) {
+          const pin = document.getElementById(`pin-${rider.id}`);
+          if (pin) {
+            positionMarker(pin, rider.longitude, rider.latitude);
+            pin.setAttribute(
+              "aria-label",
+              `${rider.short} ${rider.label} pickup at longitude ${rider.longitude.toFixed(5)}, latitude ${rider.latitude.toFixed(5)}`
+            );
+          }
+        }
+        for (const driver of drivers.values()) {
+          updateDriverMarker(driver, { animate: false });
+        }
+        selectActiveRider(RIDER_TEMPLATES[0].id, { resetResult: false });
+        validateDispatchInput({ announceError: false });
+      }
+
+      elements.skipLink.addEventListener("click", (event) => {
+        event.preventDefault();
+        elements.demoControls.scrollIntoView();
+        elements.resetDemoButton.focus();
+      });
+      elements.dismissErrorButton.addEventListener("click", () => {
+        elements.errorBanner.hidden = true;
+      });
+      elements.refreshHealthButton.addEventListener("click", refreshHealth);
+      elements.refreshStatsButton.addEventListener("click", async () => {
+        await refreshStats();
+        addLog("HTTP", "Dispatch stats refreshed");
+      });
+      elements.resetDemoButton.addEventListener("click", () => {
+        void resetInterviewDemo({ force: true });
+      });
+      elements.startLiveButton.addEventListener("click", startLiveMovement);
+      elements.stopLiveButton.addEventListener("click", () => stopLiveMovement(true));
+      elements.dispatchForm.addEventListener("submit", requestDispatch);
+      elements.activeRiderSelect.addEventListener("change", () => {
+        selectActiveRider(elements.activeRiderSelect.value);
+      });
+      elements.pickupLongitude.addEventListener("input", () => {
+        updatePickupMarker();
+        if (matchedDriverID) {
+          stopLiveMovement(false);
+          resetDispatchResult();
+        }
+      });
+      elements.pickupLatitude.addEventListener("input", () => {
+        updatePickupMarker();
+        if (matchedDriverID) {
+          stopLiveMovement(false);
+          resetDispatchResult();
+        }
+      });
+      elements.dispatchRadius.addEventListener("input", () => {
+        validateDispatchInput({ announceError: false });
+      });
+      elements.clearLogButton.addEventListener("click", () => {
+        elements.eventLog.replaceChildren();
+        addLog("UI", "Event log cleared");
+      });
+      window.addEventListener("beforeunload", () => {
+        stopDriverLivenessRefresh();
+        stopLiveMovement(false);
+      });
+
+      initializeMap();
+      setLiveUI("initializing");
+      refreshHealth();
+      void resetInterviewDemo({ scrollToTop: false });
+    })();
+  </script>
+</body>
+</html>

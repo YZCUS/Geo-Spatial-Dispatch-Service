@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 
@@ -66,6 +67,10 @@ func (s *Server) HandleRiderWebSocket(w http.ResponseWriter, r *http.Request) {
 
 // HandleWebSocketStats returns real-time connection statistics
 func (s *Server) HandleWebSocketStats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	if s.hub == nil {
 		http.Error(w, "WebSocket hub not initialized", http.StatusServiceUnavailable)
 		return
@@ -73,33 +78,10 @@ func (s *Server) HandleWebSocketStats(w http.ResponseWriter, r *http.Request) {
 
 	stats := s.hub.GetStats()
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte(`{"drivers":` + itoa(stats.TotalDrivers) +
-		`,"riders":` + itoa(stats.TotalRiders) +
-		`,"messages_per_sec":` + itoa64(stats.MessagesPerSec) +
-		`,"total_messages":` + itoa64(stats.TotalMessages) + `}`))
-}
-
-// Helper functions
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
-}
-
-func itoa64(n int64) string {
-	if n == 0 {
-		return "0"
-	}
-	s := ""
-	for n > 0 {
-		s = string(rune('0'+n%10)) + s
-		n /= 10
-	}
-	return s
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		"drivers":          stats.TotalDrivers,
+		"riders":           stats.TotalRiders,
+		"messages_per_sec": stats.MessagesPerSec,
+		"total_messages":   stats.TotalMessages,
+	})
 }

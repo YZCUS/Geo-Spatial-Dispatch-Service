@@ -38,8 +38,10 @@ type Client struct {
 	hub        *Hub
 	conn       *websocket.Conn
 	send       chan []byte
+	done       chan struct{}
 	subscribed map[string]bool // For riders: driver IDs they're tracking
 	mu         sync.RWMutex
+	closeOnce  sync.Once
 }
 
 // NewClient creates a new WebSocket client
@@ -50,6 +52,7 @@ func NewClient(id string, clientType ClientType, hub *Hub, conn *websocket.Conn)
 		hub:        hub,
 		conn:       conn,
 		send:       make(chan []byte, 256),
+		done:       make(chan struct{}),
 		subscribed: make(map[string]bool),
 	}
 }
@@ -57,7 +60,8 @@ func NewClient(id string, clientType ClientType, hub *Hub, conn *websocket.Conn)
 // ReadPump pumps messages from the WebSocket connection to the hub
 func (c *Client) ReadPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.Unregister(c)
+		c.Close()
 		c.conn.Close()
 	}()
 
@@ -71,7 +75,7 @@ func (c *Client) ReadPump() {
 	for {
 		_, message, err := c.conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
+			if shouldLogReadError(err, c.isDone()) {
 				log.Printf("[Client %s] Read error: %v", c.ID, err)
 			}
 			break
@@ -88,6 +92,27 @@ func (c *Client) ReadPump() {
 	}
 }
 
+func isExpectedReadClose(err error) bool {
+	return websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway)
+}
+
+func shouldLogReadError(err error, clientDone bool) bool {
+	return !clientDone && !isExpectedReadClose(err)
+}
+
+func (c *Client) isDone() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
+}
+
+func normalCloseMessage() []byte {
+	return websocket.FormatCloseMessage(websocket.CloseNormalClosure, "Server closing")
+}
+
 // WritePump pumps messages from the hub to the WebSocket connection
 func (c *Client) WritePump() {
 	ticker := time.NewTicker(pingPeriod)
@@ -98,27 +123,14 @@ func (c *Client) WritePump() {
 
 	for {
 		select {
-		case message, ok := <-c.send:
+		case <-c.done:
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				return
-			}
+			_ = c.conn.WriteMessage(websocket.CloseMessage, normalCloseMessage())
+			return
 
-			w, err := c.conn.NextWriter(websocket.TextMessage)
-			if err != nil {
-				return
-			}
-			w.Write(message)
-
-			// Drain queued messages
-			n := len(c.send)
-			for i := 0; i < n; i++ {
-				w.Write([]byte{'\n'})
-				w.Write(<-c.send)
-			}
-
-			if err := w.Close(); err != nil {
+		case message := <-c.send:
+			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				return
 			}
 
@@ -141,7 +153,7 @@ func (c *Client) handleMessage(msg *Message) {
 	case TypeUnsubscribe:
 		c.handleUnsubscribe(msg)
 	case TypeHeartbeat:
-		c.sendAck("heartbeat")
+		c.handleHeartbeat()
 	default:
 		log.Printf("[Client %s] Unknown message type: %s", c.ID, msg.Type)
 	}
@@ -165,8 +177,11 @@ func (c *Client) handleLocationUpdate(msg *Message) {
 
 	log.Printf("[Client %s] Location update: (%.4f, %.4f)", c.ID, payload.Longitude, payload.Latitude)
 
-	// Broadcast to hub
-	c.hub.broadcastLocation <- &payload
+	// Persist before broadcasting so subscribers never observe a location that
+	// the backend rejected.
+	if err := c.hub.PublishLocation(&payload); err != nil {
+		c.sendError("location_update_failed", err.Error())
+	}
 }
 
 // handleSubscribe handles rider subscribing to driver updates
@@ -192,6 +207,11 @@ func (c *Client) handleSubscribe(msg *Message) {
 
 // handleUnsubscribe handles rider unsubscribing from driver updates
 func (c *Client) handleUnsubscribe(msg *Message) {
+	if c.Type != ClientTypeRider {
+		c.sendError("permission_denied", "Only riders can unsubscribe")
+		return
+	}
+
 	var payload SubscribePayload
 	if err := json.Unmarshal(msg.Payload, &payload); err != nil {
 		c.sendError("invalid_payload", "Invalid unsubscribe payload")
@@ -204,6 +224,18 @@ func (c *Client) handleUnsubscribe(msg *Message) {
 
 	log.Printf("[Client %s] Unsubscribed from driver %s", c.ID, payload.DriverID)
 	c.sendAck("unsubscribed")
+}
+
+func (c *Client) handleHeartbeat() {
+	if c.Type != ClientTypeDriver {
+		c.sendError("permission_denied", "Only drivers can send heartbeats")
+		return
+	}
+	if err := c.hub.HeartbeatDriver(c.ID); err != nil {
+		c.sendError("heartbeat_failed", err.Error())
+		return
+	}
+	c.sendAck("heartbeat")
 }
 
 // IsSubscribedTo checks if client is subscribed to a driver
@@ -219,13 +251,26 @@ func (c *Client) Send(msg *Message) error {
 	if err != nil {
 		return err
 	}
+	return c.SendBytes(data)
+}
 
+// SendBytes queues an already encoded message.
+func (c *Client) SendBytes(data []byte) error {
 	select {
+	case <-c.done:
+		return ErrHubClosed
 	case c.send <- data:
 		return nil
 	default:
 		return ErrClientBufferFull
 	}
+}
+
+// Close signals the writer to close. It is safe to call more than once.
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+	})
 }
 
 // sendError sends an error message to the client

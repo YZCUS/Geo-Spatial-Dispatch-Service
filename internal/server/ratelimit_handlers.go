@@ -2,9 +2,12 @@ package server
 
 import (
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strconv"
+
+	"github.com/YZCUS/geo-spatial-dispatch-service/internal/ratelimiter"
 )
 
 type RateLimitRequest struct {
@@ -34,7 +37,11 @@ func (s *Server) HandleRateLimitCheck(w http.ResponseWriter, r *http.Request) {
 	allowed, remaining, err := s.rateLimiter.AllowAtomic(r.Context(), req.Key, req.Cost)
 	if err != nil {
 		log.Printf("[RateLimit] Error checking key=%s: %v", req.Key, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, ratelimiter.ErrInvalidAmount) || errors.Is(err, ratelimiter.ErrInvalidKey) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -67,16 +74,26 @@ func (s *Server) HandleSetBudget(w http.ResponseWriter, r *http.Request) {
 	log.Printf("[RateLimit] Setting budget key=%s amount=%d", key, amount)
 	if err := s.rateLimiter.SetBudget(r.Context(), key, amount); err != nil {
 		log.Printf("[RateLimit] Error setting budget key=%s: %v", key, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, ratelimiter.ErrInvalidAmount) || errors.Is(err, ratelimiter.ErrInvalidKey) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 
 	log.Printf("[RateLimit] Budget set successfully key=%s amount=%d", key, amount)
+	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"status": "success"})
 }
 
 func (s *Server) HandleGetBudget(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	key := r.URL.Query().Get("key")
 	if key == "" {
 		log.Printf("[RateLimit] GetBudget missing key parameter")
@@ -88,7 +105,11 @@ func (s *Server) HandleGetBudget(w http.ResponseWriter, r *http.Request) {
 	budget, err := s.rateLimiter.GetBudget(r.Context(), key)
 	if err != nil {
 		log.Printf("[RateLimit] Error getting budget key=%s: %v", key, err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		if errors.Is(err, ratelimiter.ErrInvalidKey) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 		return
 	}
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -13,7 +14,19 @@ import (
 )
 
 func main() {
-	srv := server.New("localhost:6379")
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		healthURL := envOrDefault("HEALTHCHECK_URL", "http://127.0.0.1:8080/ping")
+		if err := runHealthcheck(healthURL); err != nil {
+			log.Printf("Healthcheck failed: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	redisAddr := envOrDefault("REDIS_ADDR", "localhost:6379")
+	httpAddr := envOrDefault("HTTP_ADDR", ":8080")
+
+	srv := server.New(redisAddr)
 	defer srv.Redis.Close()
 
 	// Start WebSocket hub
@@ -21,6 +34,8 @@ func main() {
 	defer srv.StopHub()
 
 	mux := http.NewServeMux()
+	mux.HandleFunc("/", srv.HandleDemo)
+	mux.HandleFunc("/demo/reset", srv.HandleDemoReset)
 	mux.HandleFunc("/health", srv.HandleHealthCheck)
 	mux.HandleFunc("/ping", srv.HandlePing)
 	mux.HandleFunc("/ratelimit/check", srv.HandleRateLimitCheck)
@@ -44,12 +59,14 @@ func main() {
 	mux.HandleFunc("/ws/stats", srv.HandleWebSocketStats)
 
 	httpServer := &http.Server{
-		Addr:    ":8080",
-		Handler: mux,
+		Addr:              httpAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 
 	go func() {
-		log.Println("Server started on http://localhost:8080")
+		log.Printf("Server started on %s", httpAddr)
 		log.Println("WebSocket endpoints: /ws/driver, /ws/rider")
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start server: %v", err)
@@ -69,4 +86,24 @@ func main() {
 	}
 
 	log.Println("Server exited properly")
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func runHealthcheck(url string) error {
+	client := &http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %s", resp.Status)
+	}
+	return nil
 }

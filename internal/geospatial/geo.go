@@ -4,19 +4,24 @@ import (
 	"context"
 	"errors"
 	"log"
+	"math"
+	"strings"
 
 	"github.com/go-redis/redis/v8"
 )
 
 var (
 	ErrInvalidCoordinates = errors.New("invalid coordinates")
+	ErrInvalidLocationID  = errors.New("invalid location id")
+	ErrInvalidRadius      = errors.New("invalid radius")
 	ErrLocationNotFound   = errors.New("location not found")
 )
 
 type Location struct {
-	ID        string  `json:"id"`
-	Longitude float64 `json:"longitude"`
-	Latitude  float64 `json:"latitude"`
+	ID         string  `json:"id"`
+	Longitude  float64 `json:"longitude"`
+	Latitude   float64 `json:"latitude"`
+	DistanceKm float64 `json:"distance_km,omitempty"`
 }
 
 type GeoService struct {
@@ -37,13 +42,12 @@ func New(rdb *redis.Client, key string) *GeoService {
 
 // AddLocation adds or updates a location
 func (gs *GeoService) AddLocation(ctx context.Context, loc Location) error {
-	if loc.Longitude < -180 || loc.Longitude > 180 {
-		log.Printf("[GeoService] Invalid longitude: %.4f", loc.Longitude)
-		return ErrInvalidCoordinates
+	if strings.TrimSpace(loc.ID) == "" {
+		return ErrInvalidLocationID
 	}
-	if loc.Latitude < -90 || loc.Latitude > 90 {
-		log.Printf("[GeoService] Invalid latitude: %.4f", loc.Latitude)
-		return ErrInvalidCoordinates
+	if err := ValidateCoordinates(loc.Longitude, loc.Latitude); err != nil {
+		log.Printf("[GeoService] Invalid coordinates: longitude=%v latitude=%v", loc.Longitude, loc.Latitude)
+		return err
 	}
 
 	err := gs.redis.GeoAdd(ctx, gs.key, &redis.GeoLocation{
@@ -59,6 +63,10 @@ func (gs *GeoService) AddLocation(ctx context.Context, loc Location) error {
 
 // GetLocation retrieves location coordinates
 func (gs *GeoService) GetLocation(ctx context.Context, id string) (*Location, error) {
+	if strings.TrimSpace(id) == "" {
+		return nil, ErrInvalidLocationID
+	}
+
 	positions, err := gs.redis.GeoPos(ctx, gs.key, id).Result()
 	if err != nil {
 		log.Printf("[GeoService] Redis GeoPos error for id=%s: %v", id, err)
@@ -93,10 +101,18 @@ func (gs *GeoService) RemoveLocation(ctx context.Context, id string) error {
 
 // FindNearby finds locations within radius (km)
 func (gs *GeoService) FindNearby(ctx context.Context, lon, lat, radiusKm float64) ([]Location, error) {
+	if err := ValidateCoordinates(lon, lat); err != nil {
+		return nil, err
+	}
+	if err := ValidateRadius(radiusKm); err != nil {
+		return nil, err
+	}
+
 	results, err := gs.redis.GeoRadius(ctx, gs.key, lon, lat, &redis.GeoRadiusQuery{
 		Radius:    radiusKm,
 		Unit:      "km",
 		WithCoord: true,
+		WithDist:  true,
 		Sort:      "ASC",
 	}).Result()
 
@@ -108,9 +124,10 @@ func (gs *GeoService) FindNearby(ctx context.Context, lon, lat, radiusKm float64
 	locations := make([]Location, 0, len(results))
 	for _, result := range results {
 		locations = append(locations, Location{
-			ID:        result.Name,
-			Longitude: result.Longitude,
-			Latitude:  result.Latitude,
+			ID:         result.Name,
+			Longitude:  result.Longitude,
+			Latitude:   result.Latitude,
+			DistanceKm: result.Dist,
 		})
 	}
 
@@ -125,4 +142,21 @@ func (gs *GeoService) Distance(ctx context.Context, id1, id2 string) (float64, e
 		return 0, err
 	}
 	return dist, nil
+}
+
+func ValidateCoordinates(lon, lat float64) error {
+	if math.IsNaN(lon) || math.IsInf(lon, 0) || lon < -180 || lon > 180 {
+		return ErrInvalidCoordinates
+	}
+	if math.IsNaN(lat) || math.IsInf(lat, 0) || lat < -90 || lat > 90 {
+		return ErrInvalidCoordinates
+	}
+	return nil
+}
+
+func ValidateRadius(radiusKm float64) error {
+	if math.IsNaN(radiusKm) || math.IsInf(radiusKm, 0) || radiusKm <= 0 {
+		return ErrInvalidRadius
+	}
+	return nil
 }

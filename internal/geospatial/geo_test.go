@@ -17,7 +17,9 @@ func setupTestGeo(t *testing.T) *GeoService {
 	})
 
 	ctx := context.Background()
-	rdb.FlushDB(ctx)
+	if err := rdb.FlushDB(ctx).Err(); err != nil {
+		t.Fatalf("Failed to flush Redis test DB: %v", err)
+	}
 
 	return New(rdb, "test-locations")
 }
@@ -200,5 +202,49 @@ func TestGeoService_InvalidCoordinates(t *testing.T) {
 
 	if err != ErrInvalidCoordinates {
 		t.Errorf("Expected ErrInvalidCoordinates for invalid latitude, got %v", err)
+	}
+
+	err = gs.AddLocation(ctx, Location{
+		ID:        "nan",
+		Longitude: math.NaN(),
+		Latitude:  0,
+	})
+	if err != ErrInvalidCoordinates {
+		t.Errorf("Expected ErrInvalidCoordinates for NaN, got %v", err)
+	}
+}
+
+func TestGeoService_RejectsEmptyIDAndInvalidRadius(t *testing.T) {
+	gs := setupTestGeo(t)
+	defer gs.redis.Close()
+
+	ctx := context.Background()
+	if err := gs.AddLocation(ctx, Location{Longitude: 0, Latitude: 0}); err != ErrInvalidLocationID {
+		t.Errorf("Expected ErrInvalidLocationID, got %v", err)
+	}
+
+	if _, err := gs.FindNearby(ctx, 0, 0, 0); err != ErrInvalidRadius {
+		t.Errorf("Expected ErrInvalidRadius, got %v", err)
+	}
+}
+
+func TestGeoService_FindNearbyIncludesRedisDistance(t *testing.T) {
+	gs := setupTestGeo(t)
+	defer gs.redis.Close()
+
+	ctx := context.Background()
+	if err := gs.AddLocation(ctx, Location{ID: "north", Longitude: 0, Latitude: 1}); err != nil {
+		t.Fatalf("AddLocation failed: %v", err)
+	}
+
+	nearby, err := gs.FindNearby(ctx, 0, 0, 120)
+	if err != nil {
+		t.Fatalf("FindNearby failed: %v", err)
+	}
+	if len(nearby) != 1 {
+		t.Fatalf("Expected 1 location, got %d", len(nearby))
+	}
+	if nearby[0].DistanceKm < 110 || nearby[0].DistanceKm > 112 {
+		t.Errorf("Expected Redis distance around 111km, got %.2f", nearby[0].DistanceKm)
 	}
 }

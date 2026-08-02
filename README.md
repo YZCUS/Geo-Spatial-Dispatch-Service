@@ -1,53 +1,58 @@
 # Geo-Spatial Dispatch Service
 
-A high-performance, real-time driver dispatch system built with Go and Redis.
+A real-time driver dispatch demo built with Go, Redis geospatial indexing, REST,
+and WebSockets.
+
+The diagram below is a **logical single-process demo architecture** and does not
+represent a deployed load-balancer setup.
 
 ## Architecture
 
 ```
-                                   +------------------+
-                                   |   Load Balancer  |
-                                   +--------+---------+
-                                            |
-                    +-----------------------+-----------------------+
-                    |                                               |
-            +-------v-------+                               +-------v-------+
-            |   HTTP REST   |                               |   WebSocket   |
-            |   Endpoints   |                               |   Endpoints   |
-            +-------+-------+                               +-------+-------+
-                    |                                               |
-                    +-------------------+---------------------------+
-                                        |
-                                +-------v-------+
-                                |    Server     |
-                                +-------+-------+
-                                        |
-        +-------------+--------+--------+--------+-------------+
-        |             |        |        |        |             |
-+-------v---+  +------v----+  +v-------+  +------v----+  +-----v------+
-| GeoService|  |  Driver   |  |Dispatch|  |  Realtime |  |RateLimiter |
-|           |  |  Service  |  |        |  |    Hub    |  |            |
-+-----------+  +-----------+  +--------+  +-----------+  +------------+
-        |             |            |            |              |
-        +-------------+------------+------------+--------------+
-                                   |
-                           +-------v-------+
-                           |     Redis     |
-                           | (GEO + Keys)  |
-                           +---------------+
+                         +----------------------------------+
+                         | Demo Server (single Go process)   |
+                         +----------------+-----------------+
+                                          |
+              +-------------+-------------+---------------+--------------+
+              |             |             |               |
+      +-------v-------+ +---v-----------+ +v-----------+ +v------------+
+      | HTTP REST     | | WebSocket     | |Demo Handler| | Redis Health |
+      | Endpoints     | | Endpoints     | | + assets   | | Checks       |
+      +-------+-------+ +------+--------+ +------+-----+ +------+------+
+              |                |               |              |
+              +----------------+---------------+--------------+
+                               |
+                        +------+v------+
+                        |   Server     |
+                        +------+-------+
+                               |
+              +----------------+------+-----------------+---------------+
+              |                |      |                 |               |
+          +---v----+      +----v--+   +v--------+   +----v--------+ +---v------+
+          | Geo    |      |Driver  |   |Dispatch |   |Realtime Hub | |RateLimit |
+          |Service |      |Service |   |         |   |             | |          |
+          +--------+      +--------+   +---------+   +-------------+ +----------+
+              |                |          |              |
+              +----------------+----------+--------------+
+                               |
+                        +------v-------+
+                        |    Redis     |
+                        | (GEO + Keys) |
+                        +--------------+
 ```
 
 ## Features
 
 ### Core Dispatch Engine
 - Location-based driver matching using Redis Geospatial commands (GEOADD, GEORADIUS)
-- Sub-5ms latency for radius queries
-- Distance-sorted results for optimal driver selection
+- Distance-sorted results with Redis-calculated straight-line distances (`GEORADIUS`);
+  these are not road-route ETA estimates
+- Atomic available-to-busy transitions and distributed driver locks
 
 ### Real-Time Communication
 - WebSocket connections for drivers and riders
-- Hub pattern for managing thousands of concurrent connections
-- Publish-subscribe model for location updates
+- Hub pattern for managing concurrent connections
+- In-process WebSocket subscription fan-out (hub-local; no external pub/sub layer)
 
 ### Concurrency and Race Condition Handling
 - Distributed locking with Redis SETNX to prevent double-assignment
@@ -56,13 +61,16 @@ A high-performance, real-time driver dispatch system built with Go and Redis.
 
 ### Driver Management
 - TTL-based driver liveness detection
-- Heartbeat mechanism to maintain online status
-- Automatic cleanup of stale driver records
+- Heartbeats refresh an already-online driver's status
+- Fresh location updates bring expired drivers back online
 
 ### Rate Limiting
-- Token bucket algorithm for API rate limiting
 - Per-client budget management
-- Atomic budget operations
+- Namespaced, atomic budget deductions
+
+> Performance note: this repository does not yet include a reproducible load
+> benchmark, so latency and connection-scale claims should be measured in the
+> target environment before production use.
 
 ## Project Structure
 
@@ -88,47 +96,81 @@ A high-performance, real-time driver dispatch system built with Go and Redis.
 │   │   ├── messages.go          # Message types
 │   │   └── realtime_test.go
 │   ├── ratelimiter/
-│   │   ├── ratelimiter.go       # Token bucket implementation
+│   │   ├── ratelimiter.go       # Atomic budget implementation
 │   │   └── ratelimiter_test.go
 │   └── server/
 │       ├── server.go            # Server initialization
+│       ├── demo/                 # Self-contained browser demo
+│       ├── demo_handler.go       # Embedded demo route
 │       ├── geo_handlers.go      # Geo API handlers
 │       ├── dispatch_handlers.go # Dispatch API handlers
 │       ├── ws_handlers.go       # WebSocket handlers
 │       └── server_test.go
-└── docker-compose.yml           # Redis container
+├── Dockerfile                   # Static Go service image
+└── docker-compose.yml           # App + Redis demo stack
 ```
 
-## Prerequisites
+## Quick Demo
+
+Prerequisite: Docker with Docker Compose.
+
+```bash
+make demo-up
+```
+
+Open [http://localhost:8080](http://localhost:8080). The interview configuration
+automatically prepares eight Manhattan drivers, visualizes three rider pickups,
+then lets you dispatch the nearest driver and start browser-simulated fleet
+movement through 11 WebSocket connections.
+This map animation is browser simulated and not a routing/benchmark system.
+
+Use this exact walkthrough:
+
+`Reset to known state -> R1 dispatch expected demo-driver-02 / ~0.122 km straight-line -> Start fleet fan-out (11 sockets)`
+
+```bash
+make demo-smoke
+make demo-down
+```
+
+`demo-smoke` performs the same core path without a browser and fails with a
+non-zero exit code if the nearest driver is not assigned.
+
+## Local Development
+
+Prerequisites:
 
 - Go 1.21+
 - Redis 6.0+
-- Docker (optional)
+- Docker Compose (recommended for Redis)
 
-## Getting Started
-
-### 1. Start Redis
-
-Using Docker:
-```bash
-docker-compose up -d
-```
-
-Or connect to an existing Redis instance on `localhost:6379`.
-
-### 2. Run the Server
+Start Redis:
 
 ```bash
-go run cmd/server/main.go
+docker compose up -d --wait redis
 ```
 
-The server starts on `http://localhost:8080`.
-
-### 3. Run Tests
+Run the service:
 
 ```bash
-go test ./... -cover
+REDIS_ADDR=localhost:6379 HTTP_ADDR=:8080 go run ./cmd/server
 ```
+
+```bash
+make test
+```
+
+The integration tests use Redis databases 1–5 and flush those databases.
+Do not point the test suite at a Redis instance containing important data.
+
+Environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `REDIS_ADDR` | `localhost:6379` | Redis host and port |
+| `HTTP_ADDR` | `:8080` | HTTP listen address |
+| `HTTP_PORT` | `8080` | Host port used by Docker Compose |
+| `REDIS_PORT` | `6379` | Host Redis port used by Docker Compose |
 
 ## API Reference
 
@@ -178,12 +220,15 @@ go test ./... -cover
 ### Add a Driver Location
 
 ```bash
-curl -X POST http://localhost:8080/geo/add \
+curl -X POST http://localhost:8080/driver/location \
   -H "Content-Type: application/json" \
-  -d '{"id":"driver1","longitude":-73.9857,"latitude":40.7484}'
+  -d '{"driver_id":"driver1","longitude":-73.9857,"latitude":40.7484}'
 ```
 
-### Set Driver as Available
+`/driver/location` writes the GEO position and refreshes driver liveness. A new
+driver becomes available automatically.
+
+### Reset Driver as Available
 
 ```bash
 curl -X POST http://localhost:8080/driver/status \
@@ -202,7 +247,7 @@ curl -X POST http://localhost:8080/dispatch/request \
 ### Connect via WebSocket
 
 ```bash
-# Install wscat
+# Optional CLI client
 npm install -g wscat
 
 # Connect as driver
@@ -232,16 +277,25 @@ wscat -c "ws://localhost:8080/ws/rider?rider_id=rider1"
 {"type":"error","payload":{"code":"invalid_request","message":"..."}}
 ```
 
-## Test Coverage
+## Current Scope and Known Limits
 
-| Package | Coverage |
-|---------|----------|
-| ratelimiter | 88.9% |
-| geospatial | 82.9% |
-| driver | 81.0% |
-| dispatch | 67.4% |
-| realtime | 52.5% |
-| server | 45.5% |
+- Dispatch request IDs are returned to callers, but request-level idempotency
+  is not yet persisted. A client retry with the same ID can assign another
+  driver after the first assignment.
+- Driver status has a 30-second TTL. REST and WebSocket location updates can
+  bring a driver online; heartbeat messages only refresh an existing status, so
+  they cannot revive a stale GEO position by themselves.
+- Historical GEO members are retained and large-radius searches do not cap the
+  candidate set. Dispatch batches status reads, but production should add stale
+  location cleanup, pagination, or a separate available-driver index.
+- WebSocket fanout is process-local and scans connected riders. Horizontal
+  scale requires cross-node pub/sub and a reverse subscription index.
+- WebSocket origin checks are intentionally permissive for the local demo and
+  must be restricted before exposing the service beyond a trusted environment.
+- The rate-limit endpoints demonstrate an atomic budget, not a refilling token
+  bucket, and are not middleware on the dispatch routes.
+- The worker-pool package is an isolated example and is not part of the running
+  service.
 
 ## License
 

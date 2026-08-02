@@ -24,3 +24,25 @@ func TestHealthCheck(t *testing.T) {
 		t.Errorf("Expected body %s, got %s", "OK", w.Body.String())
 	}
 }
+
+func TestRunHealthcheck(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	if err := runHealthcheck(server.URL); err != nil {
+		t.Fatalf("runHealthcheck failed: %v", err)
+	}
+}
+
+func TestRunHealthcheckRejectsNonOK(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	if err := runHealthcheck(server.URL); err == nil {
+		t.Fatal("Expected non-200 response to fail")
+	}
+}
