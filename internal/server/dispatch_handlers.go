@@ -15,11 +15,13 @@ import (
 
 // DispatchRequestDTO is the request body for dispatch
 type DispatchRequestDTO struct {
-	RequestID string  `json:"request_id,omitempty"`
-	RiderID   string  `json:"rider_id,omitempty"`
-	Longitude float64 `json:"longitude"`
-	Latitude  float64 `json:"latitude"`
-	RadiusKm  float64 `json:"radius_km,omitempty"`
+	RequestID       string   `json:"request_id,omitempty"`
+	RiderID         string   `json:"rider_id,omitempty"`
+	Longitude       float64  `json:"longitude"`
+	Latitude        float64  `json:"latitude"`
+	PickupLongitude *float64 `json:"pickup_longitude,omitempty"`
+	PickupLatitude  *float64 `json:"pickup_latitude,omitempty"`
+	RadiusKm        float64  `json:"radius_km,omitempty"`
 }
 
 type DispatchLifecycleDTO struct {
@@ -56,6 +58,16 @@ func (s *Server) HandleDispatchRequest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	if (req.PickupLongitude == nil) != (req.PickupLatitude == nil) {
+		http.Error(w, "pickup_longitude and pickup_latitude must be provided together", http.StatusBadRequest)
+		return
+	}
+	if req.PickupLongitude != nil {
+		if err := geospatial.ValidateCoordinates(*req.PickupLongitude, *req.PickupLatitude); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
 	if req.RadiusKm < 0 {
 		http.Error(w, geospatial.ErrInvalidRadius.Error(), http.StatusBadRequest)
 		return
@@ -67,11 +79,13 @@ func (s *Server) HandleDispatchRequest(w http.ResponseWriter, r *http.Request) {
 		req.Longitude, req.Latitude, req.RadiusKm)
 
 	result := s.dispatcher.FindAndAssign(r.Context(), dispatch.DispatchRequest{
-		RequestID: req.RequestID,
-		RiderID:   req.RiderID,
-		Longitude: req.Longitude,
-		Latitude:  req.Latitude,
-		RadiusKm:  req.RadiusKm,
+		RequestID:       req.RequestID,
+		RiderID:         req.RiderID,
+		Longitude:       req.Longitude,
+		Latitude:        req.Latitude,
+		PickupLongitude: req.PickupLongitude,
+		PickupLatitude:  req.PickupLatitude,
+		RadiusKm:        req.RadiusKm,
 	})
 
 	w.Header().Set("Content-Type", "application/json")

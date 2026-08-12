@@ -34,6 +34,69 @@ func requestRide(dispatcher *Dispatcher, requestID, riderID string, lon, lat flo
 	})
 }
 
+func TestDispatcher_RoadsidePickupUsesRiderCoordinatesForMatching(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+	ctx := context.Background()
+	seedLifecycleDriver(t, dispatcher, "near-rider", 0.0001, 0)
+	seedLifecycleDriver(t, dispatcher, "near-pickup", 0.0101, 0)
+
+	pickupLongitude, pickupLatitude := 0.01, 0.0
+	result := dispatcher.FindAndAssign(ctx, DispatchRequest{
+		RequestID:       "roadside-request",
+		RiderID:         "rider-in-building",
+		Longitude:       0,
+		Latitude:        0,
+		PickupLongitude: &pickupLongitude,
+		PickupLatitude:  &pickupLatitude,
+		RadiusKm:        2,
+	})
+	if !result.Success || result.DriverID != "near-rider" {
+		t.Fatalf("dispatch = %+v, want driver nearest the rider coordinates", result)
+	}
+
+	assignment, err := dispatcher.GetAssignment(ctx, result.RequestID)
+	if err != nil {
+		t.Fatalf("GetAssignment: %v", err)
+	}
+	if assignment.PickupLongitude != pickupLongitude || assignment.PickupLatitude != pickupLatitude {
+		t.Fatalf("persisted pickup = (%.4f, %.4f), want roadside (%.4f, %.4f)",
+			assignment.PickupLongitude, assignment.PickupLatitude, pickupLongitude, pickupLatitude)
+	}
+	if _, err := dispatcher.ArriveAssignment(ctx, result.RequestID); !errors.Is(err, ErrDriverTooFar) {
+		t.Fatalf("arrival from rider-near location error = %v, want ErrDriverTooFar", err)
+	}
+	if err := dispatcher.UpdateDriverLocation(ctx, result.DriverID, 0.0101, 0); err != nil {
+		t.Fatalf("move driver to roadside pickup: %v", err)
+	}
+	arrived, err := dispatcher.ArriveAssignment(ctx, result.RequestID)
+	if err != nil || arrived.Status != AssignmentArrived {
+		t.Fatalf("roadside arrival = %+v, err=%v", arrived, err)
+	}
+}
+
+func TestDispatcher_LegacyPickupDefaultsToRiderCoordinates(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+	ctx := context.Background()
+	seedLifecycleDriver(t, dispatcher, "driver-1", -73.99, 40.75)
+
+	result := requestRide(dispatcher, "legacy-pickup", "rider-1", -73.99, 40.75)
+	if !result.Success {
+		t.Fatalf("dispatch = %+v", result)
+	}
+	assignment, err := dispatcher.GetAssignment(ctx, result.RequestID)
+	if err != nil {
+		t.Fatalf("GetAssignment: %v", err)
+	}
+	if assignment.PickupLongitude != -73.99 || assignment.PickupLatitude != 40.75 {
+		t.Fatalf("legacy pickup = (%.4f, %.4f), want rider coordinates", assignment.PickupLongitude, assignment.PickupLatitude)
+	}
+	if _, err := dispatcher.ArriveAssignment(ctx, result.RequestID); err != nil {
+		t.Fatalf("legacy arrival at rider coordinates: %v", err)
+	}
+}
+
 func TestDispatcher_CancelAllowsRiderToRebook(t *testing.T) {
 	dispatcher, rdb := setupTestDispatch(t)
 	defer rdb.Close()

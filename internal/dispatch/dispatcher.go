@@ -50,11 +50,13 @@ func NewDispatcher(
 
 // DispatchRequest represents an incoming dispatch request
 type DispatchRequest struct {
-	RequestID string  `json:"request_id"`
-	RiderID   string  `json:"rider_id,omitempty"`
-	Longitude float64 `json:"longitude"`
-	Latitude  float64 `json:"latitude"`
-	RadiusKm  float64 `json:"radius_km"`
+	RequestID       string   `json:"request_id"`
+	RiderID         string   `json:"rider_id,omitempty"`
+	Longitude       float64  `json:"longitude"`
+	Latitude        float64  `json:"latitude"`
+	PickupLongitude *float64 `json:"pickup_longitude,omitempty"`
+	PickupLatitude  *float64 `json:"pickup_latitude,omitempty"`
+	RadiusKm        float64  `json:"radius_km"`
 }
 
 // FindAndAssign finds the nearest available driver and assigns them
@@ -182,12 +184,17 @@ func (d *Dispatcher) tryAssignDriver(ctx context.Context, req DispatchRequest, l
 	}
 
 	if req.RiderID != "" {
+		pickupLongitude, pickupLatitude := req.Longitude, req.Latitude
+		if req.PickupLongitude != nil && req.PickupLatitude != nil {
+			pickupLongitude = *req.PickupLongitude
+			pickupLatitude = *req.PickupLatitude
+		}
 		assignment := Assignment{
 			RequestID:       req.RequestID,
 			RiderID:         req.RiderID,
 			DriverID:        driverID,
-			PickupLongitude: req.Longitude,
-			PickupLatitude:  req.Latitude,
+			PickupLongitude: pickupLongitude,
+			PickupLatitude:  pickupLatitude,
 			Status:          AssignmentEnRoute,
 		}
 		if err := validatePickup(assignment); err != nil {
