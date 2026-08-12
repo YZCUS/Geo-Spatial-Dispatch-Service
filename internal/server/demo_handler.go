@@ -24,6 +24,12 @@ var demoDriverIDs = []string{
 	"demo-driver-08",
 }
 
+var demoRiderIDs = []string{
+	"demo-rider-01",
+	"demo-rider-02",
+	"demo-rider-03",
+}
+
 const (
 	demoSessionLeaseKey = "demo:session:lease"
 	demoSessionLeaseTTL = 15 * time.Minute
@@ -137,6 +143,14 @@ func (s *Server) HandleDemoReset(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
+	}
+	if claimed && clearLocksFlag == "1" {
+		for _, riderID := range demoRiderIDs {
+			if err := s.dispatcher.ResetRiderAssignment(r.Context(), riderID); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

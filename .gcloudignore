@@ -1,0 +1,10 @@
+.gcloudignore
+.git
+.gitignore
+.env*
+!.env.example
+bin/
+dist/
+coverage.out
+coverage.html
+INTERVIEW_GUIDE.md

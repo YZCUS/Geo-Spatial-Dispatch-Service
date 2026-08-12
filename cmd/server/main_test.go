@@ -46,3 +46,39 @@ func TestRunHealthcheckRejectsNonOK(t *testing.T) {
 		t.Fatal("Expected non-200 response to fail")
 	}
 }
+
+func TestHTTPAddrFromEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		httpAddr string
+		port     string
+		want     string
+	}{
+		{name: "HTTP_ADDR takes precedence", httpAddr: ":9090", port: "8080", want: ":9090"},
+		{name: "Cloud Run PORT", port: "8080", want: ":8080"},
+		{name: "local default", want: ":8080"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("HTTP_ADDR", tt.httpAddr)
+			t.Setenv("PORT", tt.port)
+			if got := httpAddrFromEnv(); got != tt.want {
+				t.Fatalf("httpAddrFromEnv() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHTTPMuxRegistersDispatchLifecycleRoutes(t *testing.T) {
+	mux := newHTTPMux(&server.Server{})
+
+	for _, path := range []string{"/dispatch/cancel", "/dispatch/arrive"} {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		w := httptest.NewRecorder()
+		mux.ServeHTTP(w, req)
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("%s status=%d, want 405", path, w.Code)
+		}
+	}
+}

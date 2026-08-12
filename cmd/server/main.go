@@ -24,7 +24,7 @@ func main() {
 	}
 
 	redisAddr := envOrDefault("REDIS_ADDR", "localhost:6379")
-	httpAddr := envOrDefault("HTTP_ADDR", ":8080")
+	httpAddr := httpAddrFromEnv()
 
 	srv := server.New(redisAddr)
 	defer srv.Redis.Close()
@@ -33,30 +33,7 @@ func main() {
 	srv.StartHub()
 	defer srv.StopHub()
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", srv.HandleDemo)
-	mux.HandleFunc("/demo/reset", srv.HandleDemoReset)
-	mux.HandleFunc("/health", srv.HandleHealthCheck)
-	mux.HandleFunc("/ping", srv.HandlePing)
-	mux.HandleFunc("/ratelimit/check", srv.HandleRateLimitCheck)
-	mux.HandleFunc("/ratelimit/budget/set", srv.HandleSetBudget)
-	mux.HandleFunc("/ratelimit/budget/get", srv.HandleGetBudget)
-	mux.HandleFunc("/geo/add", srv.HandleAddLocation)
-	mux.HandleFunc("/geo/get", srv.HandleGetLocation)
-	mux.HandleFunc("/geo/nearby", srv.HandleFindNearby)
-
-	// Dispatch routes
-	mux.HandleFunc("/dispatch/request", srv.HandleDispatchRequest)
-	mux.HandleFunc("/dispatch/stats", srv.HandleDispatchStats)
-
-	// Driver routes
-	mux.HandleFunc("/driver/status", srv.HandleDriverStatus)
-	mux.HandleFunc("/driver/location", srv.HandleDriverLocation)
-
-	// WebSocket routes
-	mux.HandleFunc("/ws/driver", srv.HandleDriverWebSocket)
-	mux.HandleFunc("/ws/rider", srv.HandleRiderWebSocket)
-	mux.HandleFunc("/ws/stats", srv.HandleWebSocketStats)
+	mux := newHTTPMux(srv)
 
 	httpServer := &http.Server{
 		Addr:              httpAddr,
@@ -88,11 +65,51 @@ func main() {
 	log.Println("Server exited properly")
 }
 
+func newHTTPMux(srv *server.Server) *http.ServeMux {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", srv.HandleDemo)
+	mux.HandleFunc("/demo/reset", srv.HandleDemoReset)
+	mux.HandleFunc("/health", srv.HandleHealthCheck)
+	mux.HandleFunc("/ping", srv.HandlePing)
+	mux.HandleFunc("/ratelimit/check", srv.HandleRateLimitCheck)
+	mux.HandleFunc("/ratelimit/budget/set", srv.HandleSetBudget)
+	mux.HandleFunc("/ratelimit/budget/get", srv.HandleGetBudget)
+	mux.HandleFunc("/geo/add", srv.HandleAddLocation)
+	mux.HandleFunc("/geo/get", srv.HandleGetLocation)
+	mux.HandleFunc("/geo/nearby", srv.HandleFindNearby)
+
+	// Dispatch routes
+	mux.HandleFunc("/dispatch/request", srv.HandleDispatchRequest)
+	mux.HandleFunc("/dispatch/cancel", srv.HandleDispatchCancel)
+	mux.HandleFunc("/dispatch/arrive", srv.HandleDispatchArrive)
+	mux.HandleFunc("/dispatch/stats", srv.HandleDispatchStats)
+
+	// Driver routes
+	mux.HandleFunc("/driver/status", srv.HandleDriverStatus)
+	mux.HandleFunc("/driver/location", srv.HandleDriverLocation)
+
+	// WebSocket routes
+	mux.HandleFunc("/ws/driver", srv.HandleDriverWebSocket)
+	mux.HandleFunc("/ws/rider", srv.HandleRiderWebSocket)
+	mux.HandleFunc("/ws/stats", srv.HandleWebSocketStats)
+	return mux
+}
+
 func envOrDefault(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
 	}
 	return fallback
+}
+
+func httpAddrFromEnv() string {
+	if addr := os.Getenv("HTTP_ADDR"); addr != "" {
+		return addr
+	}
+	if port := os.Getenv("PORT"); port != "" {
+		return ":" + port
+	}
+	return ":8080"
 }
 
 func runHealthcheck(url string) error {

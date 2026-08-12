@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#010102">
+  <link rel="icon" href="data:,">
   <title>Dispatch Lab · Manhattan</title>
   <style>
     :root {
@@ -576,6 +577,12 @@
       box-shadow: 0 0 0 4px rgb(94 106 210 / 28%);
     }
 
+    .map-marker.arrived .pin,
+    .map-marker.rider[data-ride-status="arrived"] .pin {
+      background: var(--success);
+      box-shadow: 0 0 0 4px rgb(39 166 68 / 22%);
+    }
+
     .map-footer {
       display: flex;
       align-items: center;
@@ -613,6 +620,11 @@
     .legend-dot.matched {
       background: var(--primary-hover);
       box-shadow: 0 0 0 3px rgb(94 106 210 / 20%);
+    }
+
+    .legend-dot.arrived {
+      background: var(--success);
+      box-shadow: 0 0 0 3px rgb(39 166 68 / 18%);
     }
 
     .map-footer code,
@@ -740,9 +752,20 @@
       color: var(--ink-muted);
     }
 
-    .driver-state[data-state="busy"],
+    .driver-state[data-state="en_route"],
+    .driver-state[data-state="arriving"],
+    .driver-state[data-state="arrival_failed"],
+    .driver-state[data-state="arrived"],
     .rider-row[data-active="true"] .rider-state {
       color: var(--primary-hover);
+    }
+
+    .rider-row[data-ride-status="cancelled"] .rider-state {
+      color: var(--ink-muted);
+    }
+
+    .rider-row[data-ride-status="arrived"] .rider-state {
+      color: var(--success);
     }
 
     .rider-row[data-active="true"] {
@@ -798,6 +821,12 @@
       margin-top: 12px;
     }
 
+    .dispatch-actions {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
     .socket-copy {
       color: var(--ink-tertiary);
       font-family: var(--font-mono);
@@ -838,6 +867,80 @@
       margin-bottom: 8px;
       color: var(--ink-subtle);
       font-size: 12px;
+    }
+
+    .result-validation {
+      margin-bottom: 10px;
+      color: var(--ink-muted);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .result-validation[data-state="error"] {
+      color: var(--primary-hover);
+    }
+
+    .result-list {
+      display: grid;
+      gap: 8px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .result-item {
+      padding: 10px;
+      border: 1px solid var(--hairline);
+      border-radius: var(--radius-sm);
+      background: rgb(255 255 255 / 2%);
+    }
+
+    .result-item[data-status="en_route"],
+    .result-item[data-status="arriving"],
+    .result-item[data-status="arrival_failed"] {
+      border-color: var(--primary);
+    }
+
+    .result-item[data-status="arrived"] {
+      border-color: var(--success);
+    }
+
+    .result-item-header,
+    .result-item-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .result-item-header {
+      margin-bottom: 4px;
+      color: var(--ink);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .result-item-meta {
+      color: var(--ink-subtle);
+      font-family: var(--font-mono);
+      font-size: 10px;
+    }
+
+    .result-item-detail {
+      margin-top: 5px;
+      color: var(--ink-muted);
+      font-size: 11px;
+    }
+
+    .result-item-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+
+    .cancel-ride-button {
+      min-height: 34px;
+      padding: 6px 10px;
+      font-size: 11px;
     }
 
     .bottom-grid {
@@ -1112,10 +1215,10 @@
       <section class="hero" aria-labelledby="page-title">
         <div>
           <p class="eyebrow">Interview walkthrough</p>
-          <h1 id="page-title">Dispatch the nearest Manhattan driver in under two minutes.</h1>
+          <h1 id="page-title">Dispatch, cancel, and complete a Manhattan pickup.</h1>
           <p class="hero-copy">
-            Start from eight fixed drivers, rank candidates by Redis GEO straight-line distance,
-            then open eleven WebSockets for a browser-simulated fleet fan-out visualization.
+            Watch eight cars roam while rider pickups stay fixed. Assigned drivers turn toward
+            their riders, with cancellation open until the backend confirms arrival.
           </p>
         </div>
       </section>
@@ -1131,7 +1234,7 @@
           <header class="card-header">
             <div>
               <h2>Manhattan operations map</h2>
-              <p>3 rider requests · 8 road-constrained simulated drivers · 1-second updates</p>
+              <p>3 fixed riders · 8 road-constrained simulated drivers · 1-second updates</p>
             </div>
             <span class="live-status" id="liveStatus" data-state="initializing" role="status">Preparing known state</span>
           </header>
@@ -1220,7 +1323,8 @@
             <div class="legend" aria-label="Map legend">
               <span class="legend-item"><span class="legend-dot rider" aria-hidden="true"></span>Active rider request</span>
               <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span>Driver on road grid</span>
-              <span class="legend-item"><span class="legend-dot matched" aria-hidden="true"></span>Matched driver</span>
+              <span class="legend-item"><span class="legend-dot matched" aria-hidden="true"></span>En-route driver</span>
+              <span class="legend-item"><span class="legend-dot arrived" aria-hidden="true"></span>Arrived driver</span>
             </div>
             <code id="mapCoordinateReadout">Active demo-rider-01 · −73.98570, 40.74840</code>
           </div>
@@ -1232,7 +1336,7 @@
               <h2 class="step-title" id="seed-title"><span class="step-number">1</span>Known demo state</h2>
               <span class="field-hint">8 fixed IDs</span>
             </div>
-            <div class="driver-list" id="driverList" aria-label="Eight demo drivers"></div>
+            <div class="driver-list" id="driverList" role="list" aria-label="Eight demo drivers"></div>
             <button class="primary full-button" id="resetDemoButton" type="button" disabled aria-busy="true">Preparing known state…</button>
           </section>
 
@@ -1246,16 +1350,16 @@
                 <div class="field full">
                   <label for="activeRiderSelect">Active rider request</label>
                   <select id="activeRiderSelect" name="activeRider" disabled></select>
-                  <span class="field-hint">Switching riders clears the current dispatch result.</span>
+                  <span class="field-hint">Choose which fixed pickup to request next.</span>
                 </div>
                 <div class="field">
                   <label for="pickupLongitude">Longitude</label>
-                  <input id="pickupLongitude" name="longitude" type="number" min="-180" max="180" step="0.0001" value="-73.9857" inputmode="decimal" aria-errormessage="pickupLongitudeError" required disabled>
+                  <input id="pickupLongitude" name="longitude" type="number" min="-180" max="180" step="0.0001" value="-73.9857" inputmode="decimal" aria-errormessage="pickupLongitudeError" required readonly aria-readonly="true">
                   <span class="field-error" id="pickupLongitudeError" hidden>Enter longitude between -180 and 180.</span>
                 </div>
                 <div class="field">
                   <label for="pickupLatitude">Latitude</label>
-                  <input id="pickupLatitude" name="latitude" type="number" min="-90" max="90" step="0.0001" value="40.7484" inputmode="decimal" aria-errormessage="pickupLatitudeError" required disabled>
+                  <input id="pickupLatitude" name="latitude" type="number" min="-90" max="90" step="0.0001" value="40.7484" inputmode="decimal" aria-errormessage="pickupLatitudeError" required readonly aria-readonly="true">
                   <span class="field-error" id="pickupLatitudeError" hidden>Enter latitude between -90 and 90.</span>
                 </div>
                 <div class="field full">
@@ -1266,33 +1370,38 @@
                 </div>
               </div>
               <div class="rider-list" id="riderList" role="list" aria-label="Interview rider requests"></div>
-              <button class="primary full-button dispatch-submit" id="dispatchButton" type="submit" disabled>Find nearest driver</button>
+              <div class="dispatch-actions">
+                <button class="primary full-button dispatch-submit" id="dispatchButton" type="submit" disabled>Request selected rider</button>
+                <button class="full-button" id="dispatchAllButton" type="button" disabled>Request all 3 at once</button>
+              </div>
             </form>
           </section>
 
           <section class="control-section" aria-labelledby="result-title">
             <div class="section-title-row">
-              <h2 class="step-title" id="result-title"><span class="step-number">3</span>Dispatch result</h2>
-              <span class="field-hint">latest response</span>
+              <h2 class="step-title" id="result-title"><span class="step-number">3</span>Ride lifecycle</h2>
+              <span class="field-hint">server-owned state</span>
             </div>
             <div class="result-panel" id="dispatchResult" data-state="idle" aria-live="polite">
               <div class="result-kicker" id="resultKicker">Ready</div>
               <div class="result-primary" id="resultPrimary">No dispatch yet</div>
-              <div class="result-detail" id="resultDetail">Choose a rider, then submit a pickup.</div>
-              <div class="result-id" id="resultRequestID">request —</div>
+              <div class="result-detail" id="resultDetail">Choose a rider or launch all three fixed pickups together, then watch each car approach.</div>
+              <div class="result-validation" id="resultValidation">Unique driver check pending.</div>
+              <div class="result-id" id="resultRequestID">0 requests shown</div>
+              <ol class="result-list" id="assignmentList" aria-label="Ride lifecycle assignments"></ol>
             </div>
           </section>
 
           <section class="control-section" aria-labelledby="realtime-title">
             <div class="section-title-row">
-              <h2 class="step-title" id="realtime-title"><span class="step-number">4</span>Fleet WebSocket fan-out simulation</h2>
+              <h2 class="step-title" id="realtime-title"><span class="step-number">4</span>Live fleet feed</h2>
               <span class="field-hint">11 sockets</span>
             </div>
             <div class="live-actions">
-              <button id="startLiveButton" type="button" disabled>Start fleet fan-out</button>
-              <button id="stopLiveButton" type="button" disabled>Stop fleet fan-out</button>
+              <button id="startLiveButton" type="button" disabled>Resume live fleet</button>
+              <button id="stopLiveButton" type="button" disabled>Pause live fleet</button>
             </div>
-            <div class="socket-copy" id="socketSummary">Preparing a known 8-driver state before dispatch.</div>
+            <div class="socket-copy" id="socketSummary" aria-live="polite">Preparing 8 live drivers and 3 rider listeners.</div>
           </section>
         </aside>
       </section>
@@ -1335,8 +1444,8 @@
     </main>
 
     <footer>
-      <span>Embedded functional demo · browser-simulated motion, not routing or a benchmark.</span>
-      <code>Redis GEO + REST + in-process WebSocket fan-out</code>
+      <span>Embedded demo · the browser simulates road movement; the backend owns ride state.</span>
+      <code>Redis GEO straight-line match + REST lifecycle + WebSocket fleet feed</code>
     </footer>
   </div>
 
@@ -1453,6 +1562,7 @@
         bottom: ROAD_STREETS[ROAD_STREETS.length - 1]
       };
       const ROAD_STEP_PX = 22;
+      const PICKUP_TRAVEL_TICKS = 10;
 
       const DRIVER_ROUTES = [
         routeRectangle(3, 4, 2, 3, 0),
@@ -1506,11 +1616,14 @@
         dispatchRadiusError: document.getElementById("dispatchRadiusError"),
         dispatchForm: document.getElementById("dispatchForm"),
         dispatchButton: document.getElementById("dispatchButton"),
+        dispatchAllButton: document.getElementById("dispatchAllButton"),
         dispatchResult: document.getElementById("dispatchResult"),
         resultKicker: document.getElementById("resultKicker"),
         resultPrimary: document.getElementById("resultPrimary"),
         resultDetail: document.getElementById("resultDetail"),
+        resultValidation: document.getElementById("resultValidation"),
         resultRequestID: document.getElementById("resultRequestID"),
+        assignmentList: document.getElementById("assignmentList"),
         mapCoordinateReadout: document.getElementById("mapCoordinateReadout"),
         totalDriversStat: document.getElementById("totalDriversStat"),
         availableDriversStat: document.getElementById("availableDriversStat"),
@@ -1527,10 +1640,16 @@
       let movementTick = 0;
       let liveGeneration = 0;
       let activeRiderID = RIDER_TEMPLATES[0].id;
-      let matchedDriverID = "";
+      let dispatchInFlight = false;
+      let resetInFlight = false;
+      let lifecycleGeneration = 0;
+      let takeoverRequired = false;
+      let lastErrorTrigger = null;
+      const dispatchResults = new Map();
       let riderSockets = new Map();
       let driverSockets = new Map();
       let driverRouteStates = new Map();
+      let assignmentRoutes = new Map();
       let receivedDriversThisTick = new Set();
       const intentionalSocketCloses = new WeakSet();
 
@@ -1578,6 +1697,9 @@
       }
 
       function showError(message) {
+        if (document.activeElement && typeof document.activeElement.focus === "function") {
+          lastErrorTrigger = document.activeElement;
+        }
         elements.errorMessage.textContent = message;
         elements.errorBanner.hidden = false;
       }
@@ -1602,12 +1724,33 @@
       function setDispatchFieldsDisabled(disabled) {
         [
           elements.activeRiderSelect,
-          elements.pickupLongitude,
-          elements.pickupLatitude,
           elements.dispatchRadius
         ].forEach((field) => {
           field.disabled = disabled;
         });
+      }
+
+      function setDispatchButtonsBusy(mode = "") {
+        setButtonBusy(
+          elements.dispatchButton,
+          mode === "single",
+          "Requesting rider…",
+          "Request selected rider"
+        );
+        setButtonBusy(
+          elements.dispatchAllButton,
+          mode === "all",
+          "Requesting all riders…",
+          "Request all 3 at once"
+        );
+        if (mode) {
+          if (mode !== "single") {
+            elements.dispatchButton.disabled = true;
+          }
+          if (mode !== "all") {
+            elements.dispatchAllButton.disabled = true;
+          }
+        }
       }
 
       async function apiRequest(path, options = {}) {
@@ -1830,10 +1973,211 @@
         );
       }
 
+      function pointDistancePx(first, second) {
+        return Math.hypot(
+          ((second.left - first.left) / 100) * MAP_SVG.width,
+          ((second.top - first.top) / 100) * MAP_SVG.height
+        );
+      }
+
+      function closestRoadCoordinate(values, target) {
+        return values.reduce((closest, value) => (
+          Math.abs(value - target) < Math.abs(closest - target) ? value : closest
+        ));
+      }
+
+      function appendWaypoint(waypoints, point) {
+        const previous = waypoints[waypoints.length - 1];
+        if (
+          previous &&
+          nearlyEqual(previous.left, point.left) &&
+          nearlyEqual(previous.top, point.top)
+        ) {
+          return;
+        }
+        waypoints.push(point);
+      }
+
+      function buildPickupWaypoints(start, pickup) {
+        const pickupAvenue = closestRoadCoordinate(ROAD_AVENUES, pickup.left);
+        const pickupStreet = closestRoadCoordinate(ROAD_STREETS, pickup.top);
+        const startsOnAvenue = ROAD_AVENUES.some((left) => nearlyEqual(left, start.left));
+        const startsOnStreet = ROAD_STREETS.some((top) => nearlyEqual(top, start.top));
+        const waypoints = [];
+
+        if (startsOnAvenue && !startsOnStreet) {
+          appendWaypoint(waypoints, { left: start.left, top: pickupStreet });
+        } else {
+          appendWaypoint(waypoints, { left: pickupAvenue, top: start.top });
+        }
+        appendWaypoint(waypoints, { left: pickupAvenue, top: pickupStreet });
+        appendWaypoint(waypoints, { left: pickup.left, top: pickupStreet });
+        appendWaypoint(waypoints, pickup);
+        return waypoints.filter((point) => (
+          !nearlyEqual(point.left, start.left) || !nearlyEqual(point.top, start.top)
+        ));
+      }
+
+      function advanceAlongWaypoints(state, stepPx) {
+        let heading = state.heading || 0;
+
+        while (state.waypointIndex < state.waypoints.length) {
+          const target = state.waypoints[state.waypointIndex];
+          const current = { left: state.left, top: state.top };
+          const distancePx = pointDistancePx(current, target);
+          if (distancePx < 0.01) {
+            state.left = target.left;
+            state.top = target.top;
+            state.waypointIndex += 1;
+            continue;
+          }
+
+          const deltaLeft = target.left - state.left;
+          const deltaTop = target.top - state.top;
+          heading = Math.abs(deltaLeft) > Math.abs(deltaTop)
+            ? deltaLeft > 0 ? 90 : 270
+            : deltaTop > 0 ? 180 : 0;
+          const ratio = Math.min(1, stepPx / distancePx);
+          state.left += deltaLeft * ratio;
+          state.top += deltaTop * ratio;
+          state.heading = heading;
+
+          if (ratio === 1) {
+            state.waypointIndex += 1;
+          }
+          break;
+        }
+
+        return {
+          finished: state.waypointIndex >= state.waypoints.length,
+          heading
+        };
+      }
+
+      function startPickupRoute(riderID, driverID) {
+        const driver = drivers.get(driverID);
+        const rider = riders.get(riderID);
+        if (!driver || !rider) {
+          throw new Error(`Could not build pickup route for ${driverID} and ${riderID}`);
+        }
+
+        const start = projectPoint(driver.longitude, driver.latitude);
+        const pickup = projectPoint(rider.longitude, rider.latitude);
+        const routeState = driverRouteStates.get(driverID);
+        if (routeState) {
+          routeState.rejoinRoute = null;
+        }
+        const waypoints = buildPickupWaypoints(start, pickup);
+        const baseTicks = waypoints.length > 0
+          ? Math.floor(PICKUP_TRAVEL_TICKS / waypoints.length)
+          : 0;
+        const extraTicks = waypoints.length > 0
+          ? PICKUP_TRAVEL_TICKS % waypoints.length
+          : 0;
+        const segmentTicks = waypoints.map((_, index) => (
+          baseTicks + (index < extraTicks ? 1 : 0)
+        ));
+        assignmentRoutes.set(driverID, {
+          riderID,
+          left: start.left,
+          top: start.top,
+          heading: 0,
+          waypointIndex: 0,
+          waypoints,
+          segmentTicks,
+          segmentTicksRemaining: segmentTicks[0] || 0,
+          ticksRemaining: segmentTicks.reduce((total, ticks) => total + ticks, 0),
+          reachedPickup: waypoints.length === 0
+        });
+      }
+
+      function advancePickupRoute(route) {
+        if (route.waypointIndex < route.waypoints.length) {
+          const target = route.waypoints[route.waypointIndex];
+          const deltaLeft = target.left - route.left;
+          const deltaTop = target.top - route.top;
+          route.heading = Math.abs(deltaLeft) > Math.abs(deltaTop)
+            ? deltaLeft > 0 ? 90 : 270
+            : deltaTop > 0 ? 180 : 0;
+          const ticks = Math.max(1, route.segmentTicksRemaining);
+          route.left += deltaLeft / ticks;
+          route.top += deltaTop / ticks;
+          route.segmentTicksRemaining -= 1;
+          route.ticksRemaining = Math.max(0, route.ticksRemaining - 1);
+
+          if (route.segmentTicksRemaining === 0) {
+            route.left = target.left;
+            route.top = target.top;
+            route.waypointIndex += 1;
+            route.segmentTicksRemaining =
+              route.segmentTicks[route.waypointIndex] || 0;
+          }
+        }
+        route.reachedPickup = route.waypointIndex >= route.waypoints.length;
+
+        return {
+          ...unprojectPoint(route.left, route.top),
+          heading: route.heading,
+          reachedPickup: route.reachedPickup
+        };
+      }
+
+      function releaseDriverToRoaming(driverID) {
+        assignmentRoutes.delete(driverID);
+        const driver = drivers.get(driverID);
+        const state = driverRouteStates.get(driverID);
+        if (!driver || !state) {
+          return;
+        }
+
+        const start = projectPoint(driver.longitude, driver.latitude);
+        const route = DRIVER_ROUTES[state.routeIndex];
+        let targetIndex = 0;
+        route.forEach((point, index) => {
+          if (pointDistancePx(start, point) < pointDistancePx(start, route[targetIndex])) {
+            targetIndex = index;
+          }
+        });
+        const target = route[targetIndex];
+        const avenue = closestRoadCoordinate(ROAD_AVENUES, start.left);
+        const street = closestRoadCoordinate(ROAD_STREETS, start.top);
+        const waypoints = [];
+        appendWaypoint(waypoints, { left: avenue, top: start.top });
+        appendWaypoint(waypoints, { left: avenue, top: street });
+        appendWaypoint(waypoints, { left: target.left, top: street });
+        appendWaypoint(waypoints, target);
+
+        state.left = start.left;
+        state.top = start.top;
+        state.targetIndex = (targetIndex + 1) % route.length;
+        state.rejoinRoute = {
+          left: start.left,
+          top: start.top,
+          heading: 0,
+          waypointIndex: 0,
+          waypoints: waypoints.filter((point) => (
+            !nearlyEqual(point.left, start.left) || !nearlyEqual(point.top, start.top)
+          ))
+        };
+      }
+
       function advanceDriverRoute(driverID) {
         const state = driverRouteStates.get(driverID);
         if (!state) {
           throw new Error(`Missing road route for ${driverID}`);
+        }
+
+        if (state.rejoinRoute) {
+          const movement = advanceAlongWaypoints(state.rejoinRoute, ROAD_STEP_PX);
+          state.left = state.rejoinRoute.left;
+          state.top = state.rejoinRoute.top;
+          if (movement.finished) {
+            state.rejoinRoute = null;
+          }
+          return {
+            ...unprojectPoint(state.left, state.top),
+            heading: movement.heading
+          };
         }
 
         const route = DRIVER_ROUTES[state.routeIndex];
@@ -1919,6 +2263,7 @@
 
           const row = document.createElement("div");
           row.className = "driver-row";
+          row.setAttribute("role", "listitem");
 
           const avatar = document.createElement("span");
           avatar.className = `driver-avatar ${tone}`;
@@ -1994,8 +2339,87 @@
         });
       }
 
+      function rideStatus(result) {
+        if (!result || !result.success || !result.driver_id) {
+          return result ? "failed" : "idle";
+        }
+        if (result.status === "canceled") {
+          return "cancelled";
+        }
+        return result.status || "en_route";
+      }
+
+      function displayedRideStatus(result) {
+        if (result && result.actionPending === "arrive") {
+          return "arriving";
+        }
+        if (result && result.arrivalFailed) {
+          return "arrival_failed";
+        }
+        return rideStatus(result);
+      }
+
+      function isRiderRequestable(result) {
+        const status = rideStatus(result);
+        return status === "idle" || status === "failed" || status === "cancelled";
+      }
+
+      function statusLabel(status) {
+        const labels = {
+          en_route: "En route",
+          arriving: "At pickup",
+          arrival_failed: "Arrival not confirmed",
+          arrived: "Arrived",
+          cancelled: "Cancelled",
+          failed: "Retry available"
+        };
+        return labels[status] || status;
+      }
+
+      function setRiderStateText(riderID) {
+        const row = elements.riderList.querySelector(`[data-rider-id="${riderID}"]`);
+        if (!row) {
+          return;
+        }
+        const state = row.querySelector(".rider-state");
+        if (!state) {
+          return;
+        }
+        const result = dispatchResults.get(riderID);
+        const status = displayedRideStatus(result);
+        row.dataset.rideStatus = status;
+        const marker = document.getElementById(`pin-${riderID}`);
+        if (marker) {
+          marker.dataset.rideStatus = status;
+        }
+        if (status === "en_route") {
+          state.textContent = "En route";
+          return;
+        }
+        if (status === "arriving") {
+          state.textContent = "At pickup";
+          return;
+        }
+        if (status === "arrival_failed") {
+          state.textContent = "Arrival retry needed";
+          return;
+        }
+        if (status === "arrived") {
+          state.textContent = "Arrived";
+          return;
+        }
+        if (status === "cancelled") {
+          state.textContent = "Cancelled · rebook";
+          return;
+        }
+        if (status === "failed") {
+          state.textContent = "retry";
+          return;
+        }
+        state.textContent = riderID === activeRiderID ? "selected" : "waiting";
+      }
+
       function selectActiveRider(riderID, options = {}) {
-        const { resetResult = true } = options;
         const rider = riders.get(riderID);
         if (!rider) {
           return;
@@ -2020,24 +2444,24 @@
             } else {
               row.removeAttribute("aria-current");
             }
-            const state = row.querySelector(".rider-state");
-            if (state) {
-              state.textContent = isActive ? "active" : "request";
-            }
           }
+          setRiderStateText(template.id);
         }
 
         updatePickupMarker();
-        if (resetResult) {
-          stopLiveMovement(false);
-          resetDispatchResult();
+        if (options.logSelection !== false) {
           addLog("UI", `${rider.short} · ${rider.label} selected`);
         }
+        syncDispatchButtonsAvailability();
       }
 
       function updatePickupMarker() {
-        const longitude = Number(elements.pickupLongitude.value);
-        const latitude = Number(elements.pickupLatitude.value);
+        const rider = riders.get(activeRiderID);
+        if (!rider) {
+          return;
+        }
+        const longitude = rider.longitude;
+        const latitude = rider.latitude;
         const validLongitude = Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
         const validLatitude = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90;
 
@@ -2048,12 +2472,8 @@
           return;
         }
 
-        const rider = riders.get(activeRiderID);
-        if (!rider) {
-          return;
-        }
-        rider.longitude = longitude;
-        rider.latitude = latitude;
+        elements.pickupLongitude.value = longitude.toFixed(4);
+        elements.pickupLatitude.value = latitude.toFixed(4);
 
         const pickupPin = document.getElementById(`pin-${activeRiderID}`);
         if (pickupPin) {
@@ -2087,14 +2507,13 @@
         );
       }
 
-      function clearMatchedDriver() {
+      function clearMatchedDrivers() {
         for (const driver of DRIVER_TEMPLATES) {
           const pin = document.getElementById(`pin-${driver.id}`);
           if (pin) {
-            pin.classList.remove("matched");
+            pin.classList.remove("matched", "arrived");
           }
         }
-        matchedDriverID = "";
       }
 
       function setDriverState(driverID, state) {
@@ -2106,14 +2525,423 @@
         stateNode.textContent = state;
       }
 
+      function syncDispatchButtonsAvailability() {
+        const controlsReady =
+          !dispatchInFlight &&
+          !resetInFlight &&
+          Boolean(movementTimer) &&
+          !elements.activeRiderSelect.disabled &&
+          !elements.dispatchRadius.disabled;
+        const activeResult = dispatchResults.get(activeRiderID);
+        const hasRemainingRider = RIDER_TEMPLATES.some((rider) => {
+          return isRiderRequestable(dispatchResults.get(rider.id));
+        });
+        const activeRiderAvailable = isRiderRequestable(activeResult);
+        elements.dispatchButton.disabled = !controlsReady || !activeRiderAvailable;
+        elements.dispatchAllButton.disabled = !controlsReady || !hasRemainingRider;
+      }
+
+      function renderAssignmentList() {
+        elements.assignmentList.replaceChildren();
+        const orderedResults = RIDER_TEMPLATES
+          .map((rider) => ({ rider, result: dispatchResults.get(rider.id) }))
+          .filter(({ result }) => Boolean(result));
+
+        orderedResults.forEach(({ rider, result }) => {
+          const status = displayedRideStatus(result);
+          const item = document.createElement("li");
+          item.className = "result-item";
+          item.dataset.status = status;
+
+          const header = document.createElement("div");
+          header.className = "result-item-header";
+
+          const riderLabel = document.createElement("span");
+          riderLabel.textContent = `${rider.short} · ${rider.label}`;
+
+          const driverLabel = document.createElement("span");
+          driverLabel.textContent = result.success && result.driver_id
+            ? result.driver_id
+            : "No driver";
+
+          header.append(riderLabel, driverLabel);
+
+          const meta = document.createElement("div");
+          meta.className = "result-item-meta";
+
+          const requestNode = document.createElement("span");
+          requestNode.textContent = result.request_id
+            ? `request ${result.request_id}`
+            : "request —";
+
+          const distanceNode = document.createElement("span");
+          const distance = Number(result.distance_km);
+          distanceNode.textContent = result.success && Number.isFinite(distance)
+            ? `${distance.toFixed(3)} km`
+            : "distance —";
+
+          const statusNode = document.createElement("span");
+          statusNode.textContent = statusLabel(status);
+          meta.append(requestNode, distanceNode, statusNode);
+
+          const detail = document.createElement("div");
+          detail.className = "result-item-detail";
+          if (status === "en_route") {
+            detail.textContent =
+              "En route · driver follows the Manhattan grid; Redis GEO distance at request time.";
+          } else if (status === "arriving") {
+            detail.textContent = "At pickup · waiting for the backend to confirm arrival.";
+          } else if (status === "arrival_failed") {
+            detail.textContent = "Arrival was not confirmed · cancellation remains available.";
+          } else if (status === "arrived") {
+            detail.textContent = "Arrived · driver stopped at pickup and cancellation is closed.";
+          } else if (status === "cancelled") {
+            detail.textContent = "Cancelled · rider can request again and driver is roaming.";
+          } else {
+            detail.textContent = result.error || "Dispatch request failed.";
+          }
+
+          item.append(header, meta, detail);
+          if (rideStatus(result) === "en_route") {
+            const actions = document.createElement("div");
+            actions.className = "result-item-actions";
+            const cancelButton = document.createElement("button");
+            cancelButton.className = "cancel-ride-button";
+            cancelButton.type = "button";
+            cancelButton.disabled = Boolean(result.actionPending);
+            cancelButton.textContent = result.actionPending === "cancel"
+              ? "Cancelling…"
+              : "Cancel ride";
+            cancelButton.setAttribute(
+              "aria-label",
+              `Cancel ${rider.short} ride assigned to ${result.driver_id}`
+            );
+            cancelButton.addEventListener("click", () => {
+              void cancelRide(rider.id);
+            });
+            actions.append(cancelButton);
+            item.append(actions);
+          }
+          elements.assignmentList.append(item);
+        });
+      }
+
+      function applyDispatchVisualState() {
+        clearMatchedDrivers();
+        DRIVER_TEMPLATES.forEach((driver) => {
+          setDriverState(driver.id, "available");
+        });
+
+        dispatchResults.forEach((result) => {
+          const status = displayedRideStatus(result);
+          if (!result.success || !result.driver_id || status === "cancelled") {
+            return;
+          }
+          const pin = document.getElementById(`pin-${result.driver_id}`);
+          if (pin) {
+            pin.classList.add("matched");
+            pin.classList.toggle("arrived", status === "arrived");
+          }
+          setDriverState(result.driver_id, status);
+        });
+
+        RIDER_TEMPLATES.forEach((rider) => {
+          setRiderStateText(rider.id);
+        });
+      }
+
+      function renderDispatchResults() {
+        applyDispatchVisualState();
+        const orderedResults = RIDER_TEMPLATES
+          .map((rider) => dispatchResults.get(rider.id))
+          .filter(Boolean);
+        const activeResults = orderedResults.filter(
+          (result) => ["en_route", "arrived"].includes(rideStatus(result))
+        );
+        const enRouteCount = orderedResults.filter(
+          (result) => rideStatus(result) === "en_route"
+        ).length;
+        const arrivedCount = orderedResults.filter(
+          (result) => rideStatus(result) === "arrived"
+        ).length;
+        const cancelledCount = orderedResults.filter(
+          (result) => rideStatus(result) === "cancelled"
+        ).length;
+        const uniqueDrivers = new Set(activeResults.map((result) => result.driver_id));
+        const driversAreUnique = uniqueDrivers.size === activeResults.length;
+
+        if (orderedResults.length === 0) {
+          elements.dispatchResult.dataset.state = "idle";
+          elements.resultKicker.textContent = "Ready";
+          elements.resultPrimary.textContent = "No dispatch yet";
+          elements.resultDetail.textContent =
+            "Choose a rider or launch all three pickups, then watch each driver approach.";
+          elements.resultValidation.dataset.state = "idle";
+          elements.resultValidation.textContent = "Unique driver check pending.";
+          elements.resultRequestID.textContent = "0 requests shown";
+          elements.assignmentList.replaceChildren();
+          syncDispatchButtonsAvailability();
+          return;
+        }
+
+        elements.dispatchResult.dataset.state = activeResults.length > 0
+          ? "matched"
+          : cancelledCount > 0 ? "cancelled" : "failed";
+        elements.resultKicker.textContent =
+          `${enRouteCount} en route · ${arrivedCount} arrived · ${cancelledCount} cancelled`;
+        elements.resultPrimary.textContent = !driversAreUnique
+          ? "Duplicate driver IDs detected"
+          : enRouteCount > 0
+            ? `${enRouteCount} driver${enRouteCount === 1 ? "" : "s"} en route`
+            : arrivedCount > 0
+              ? `${arrivedCount} ride${arrivedCount === 1 ? "" : "s"} arrived`
+              : cancelledCount > 0
+                ? "Cancelled · rebook available"
+                : "No driver assigned";
+        elements.resultDetail.textContent = driversAreUnique
+          ? "Rows show the server-owned lifecycle and request-time Redis GEO distance."
+          : "Multiple active riders resolved to the same driver ID. Backend locking needs attention.";
+        elements.resultValidation.dataset.state = driversAreUnique ? "ok" : "error";
+        elements.resultValidation.textContent = activeResults.length === 0
+          ? "No active assignments to compare."
+          : driversAreUnique
+            ? `Unique driver check passed for ${activeResults.length} active assignment${activeResults.length === 1 ? "" : "s"}.`
+            : `Unique driver check failed: ${activeResults.length} assignments, ${uniqueDrivers.size} unique driver IDs.`;
+        elements.resultRequestID.textContent = `${orderedResults.length} requests shown`;
+        renderAssignmentList();
+        syncDispatchButtonsAvailability();
+      }
+
       function resetDispatchResult() {
-        clearMatchedDriver();
-        elements.dispatchResult.dataset.state = "idle";
-        elements.resultKicker.textContent = "Ready";
-        elements.resultPrimary.textContent = "No dispatch yet";
-        elements.resultDetail.textContent = "Choose a rider, then submit a pickup.";
-        elements.resultRequestID.textContent = "request —";
-        setLiveUI("locked");
+        lifecycleGeneration += 1;
+        dispatchResults.clear();
+        assignmentRoutes.clear();
+        renderDispatchResults();
+      }
+
+      function mergeLifecycleResult(current, response, fallbackStatus) {
+        const payload = response && typeof response === "object" ? response : {};
+        const status = payload.status === "canceled"
+          ? "cancelled"
+          : payload.status || fallbackStatus;
+        const merged = {
+          ...current,
+          ...payload,
+          success: true,
+          status
+        };
+        delete merged.actionPending;
+        delete merged.arrivalFailed;
+        return merged;
+      }
+
+      async function cancelRide(riderID) {
+        const result = dispatchResults.get(riderID);
+        if (!result || rideStatus(result) !== "en_route" || result.actionPending) {
+          return;
+        }
+
+        const generation = lifecycleGeneration;
+        result.actionPending = "cancel";
+        renderDispatchResults();
+        try {
+          const response = await apiRequest("/dispatch/cancel", {
+            method: "POST",
+            body: JSON.stringify({ request_id: result.request_id }),
+            announceErrors: false,
+            errorSource: "CANCEL"
+          });
+          if (generation !== lifecycleGeneration) {
+            return;
+          }
+          const cancelled = mergeLifecycleResult(result, response, "cancelled");
+          dispatchResults.set(riderID, cancelled);
+          releaseDriverToRoaming(cancelled.driver_id);
+          renderDispatchResults();
+          addLog(
+            "CANCEL",
+            `${riders.get(riderID).short} cancelled · ${cancelled.driver_id} available and roaming`,
+            "success"
+          );
+          await refreshStats();
+        } catch {
+          if (generation !== lifecycleGeneration) {
+            return;
+          }
+          delete result.actionPending;
+          renderDispatchResults();
+          showError("Cancellation was not confirmed. The ride remains en route; try again.");
+        }
+      }
+
+      async function confirmArrival(riderID) {
+        const result = dispatchResults.get(riderID);
+        if (!result || rideStatus(result) !== "en_route" || result.actionPending) {
+          return;
+        }
+
+        const generation = lifecycleGeneration;
+        result.actionPending = "arrive";
+        renderDispatchResults();
+        try {
+          const response = await apiRequest("/dispatch/arrive", {
+            method: "POST",
+            body: JSON.stringify({ request_id: result.request_id }),
+            announceErrors: false,
+            errorSource: "ARRIVE"
+          });
+          if (generation !== lifecycleGeneration) {
+            return;
+          }
+          const arrived = mergeLifecycleResult(result, response, "arrived");
+          dispatchResults.set(riderID, arrived);
+          const driver = drivers.get(arrived.driver_id);
+          if (driver) {
+            updateDriverMarker(driver);
+          }
+          renderDispatchResults();
+          addLog(
+            "ARRIVE",
+            `${riders.get(riderID).short} arrived · cancellation closed`,
+            "success"
+          );
+          await refreshStats();
+        } catch {
+          if (generation !== lifecycleGeneration) {
+            return;
+          }
+          delete result.actionPending;
+          result.arrivalFailed = true;
+          renderDispatchResults();
+          showError("Arrival was not confirmed. Cancellation remains available for this ride.");
+        }
+      }
+
+      function buildDispatchRequest(riderID, radius) {
+        const rider = riders.get(riderID);
+        if (!rider) {
+          throw new Error(`Missing rider ${riderID}`);
+        }
+        const requestID = `demo-request-${riderID}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+        return {
+          rider,
+          requestID,
+          body: {
+            request_id: requestID,
+            rider_id: riderID,
+            longitude: rider.longitude,
+            latitude: rider.latitude,
+            radius_km: radius
+          }
+        };
+      }
+
+      async function dispatchForRider(riderID, radius) {
+        const { rider, requestID, body } = buildDispatchRequest(riderID, radius);
+        body.request_id = requestID;
+        addLog(
+          "HTTP",
+          `Dispatching ${rider.short} from ${rider.longitude.toFixed(4)}, ${rider.latitude.toFixed(4)}`
+        );
+
+        try {
+          const result = await apiRequest("/dispatch/request", {
+            method: "POST",
+            body: JSON.stringify(body),
+            announceErrors: false,
+            errorSource: "HTTP"
+          });
+          return { riderID, rider, result };
+        } catch (error) {
+          if (error instanceof ApiError && error.data && typeof error.data === "object") {
+            return { riderID, rider, result: error.data };
+          }
+          return {
+            riderID,
+            rider,
+            result: {
+              success: false,
+              request_id: requestID,
+              error: error instanceof Error ? error.message : String(error)
+            }
+          };
+        }
+      }
+
+      async function runDispatchRequests(riderIDs, mode) {
+        const input = validateDispatchInput({ focusInvalid: true, announceError: true });
+        if (!input || dispatchInFlight || resetInFlight) {
+          return;
+        }
+        if (riderIDs.length === 0) {
+          showError("All three riders already have driver assignments.");
+          return;
+        }
+
+        dispatchInFlight = true;
+        elements.errorBanner.hidden = true;
+        elements.resetDemoButton.disabled = true;
+        setDispatchFieldsDisabled(true);
+        setDispatchButtonsBusy(mode);
+
+        let sessionFailed = false;
+        try {
+          await claimDemoSession({ force: false, clearLocks: false });
+          const fleetIsLive = movementTimer ? true : await startLiveMovement();
+          if (!fleetIsLive) {
+            sessionFailed = true;
+            return;
+          }
+
+          const responses = await Promise.all(
+            riderIDs.map((riderID) => dispatchForRider(riderID, input.radius))
+          );
+
+          responses.forEach(({ rider, result }) => {
+            const normalizedResult = result.success && result.driver_id
+              ? { ...result, status: rideStatus(result) }
+              : result;
+            dispatchResults.set(rider.id, normalizedResult);
+            if (rideStatus(normalizedResult) === "en_route") {
+              startPickupRoute(rider.id, normalizedResult.driver_id);
+              const distance = Number(normalizedResult.distance_km);
+              const distanceText = Number.isFinite(distance)
+                ? `${distance.toFixed(3)} km`
+                : "distance unavailable";
+              addLog(
+                "MATCH",
+                `${rider.short} → ${normalizedResult.driver_id} · En route · ${distanceText}`,
+                "success"
+              );
+            } else {
+              addLog(
+                "MATCH",
+                `${rider.short} → no assignment · ${normalizedResult.error || "dispatch failed"}`,
+                "error"
+              );
+            }
+          });
+
+          renderDispatchResults();
+        } catch (error) {
+          sessionFailed = true;
+          handleDemoSessionFailure(error);
+          return;
+        } finally {
+          dispatchInFlight = false;
+          setDispatchButtonsBusy("");
+          if (!sessionFailed) {
+            elements.resetDemoButton.disabled = false;
+            setDispatchFieldsDisabled(false);
+            syncDispatchButtonsAvailability();
+          } else {
+            elements.resetDemoButton.disabled = false;
+            setDispatchFieldsDisabled(true);
+            elements.dispatchButton.disabled = true;
+            elements.dispatchAllButton.disabled = true;
+          }
+          await refreshStats();
+        }
       }
 
       function syncDispatchFieldState(input, errorNode, isValid) {
@@ -2139,12 +2967,14 @@
           syncDispatchFieldState(input, errorNode, isValid);
         });
 
-        const firstInvalidField = fieldStates.find(([, , isValid]) => !isValid);
-        if (!firstInvalidField) {
+        const firstInvalidField = fieldStates.find(
+          ([input, , isValid]) => !isValid && !input.readOnly
+        );
+        if (validLongitude && validLatitude && validRadius) {
           return { longitude, latitude, radius };
         }
 
-        if (focusInvalid) {
+        if (focusInvalid && firstInvalidField) {
           firstInvalidField[0].focus();
         }
 
@@ -2185,10 +3015,12 @@
       function handleDemoSessionFailure(error) {
         stopDriverLivenessRefresh();
         stopLiveMovement(false);
-        resetDispatchResult();
         elements.dispatchButton.disabled = true;
         elements.dispatchButton.setAttribute("aria-busy", "false");
-        elements.dispatchButton.textContent = "Find nearest driver";
+        elements.dispatchButton.textContent = "Request selected rider";
+        elements.dispatchAllButton.disabled = true;
+        elements.dispatchAllButton.setAttribute("aria-busy", "false");
+        elements.dispatchAllButton.textContent = "Request all 3 at once";
         elements.resetDemoButton.disabled = false;
         elements.resetDemoButton.setAttribute("aria-busy", "false");
         elements.resetDemoButton.textContent = "Reset to known state";
@@ -2196,11 +3028,14 @@
         setLiveUI("error");
 
         if (error instanceof ApiError && error.status === 409) {
+          takeoverRequired = true;
+          elements.resetDemoButton.textContent = "Take over and reset";
           showError(
-            "This demo is active in another tab. Click Reset to known state to take over."
+            "This demo is active in another tab. Click Take over and reset to claim this disposable demo session."
           );
           return;
         }
+        takeoverRequired = false;
         showError("Could not prepare the demo session. Check the service, then reset and try again.");
       }
 
@@ -2268,6 +3103,7 @@
         resetDriverRouteStates();
         elements.resetDemoButton.disabled = true;
         elements.dispatchButton.disabled = true;
+        elements.dispatchAllButton.disabled = true;
         setDispatchFieldsDisabled(true);
         elements.resetDemoButton.setAttribute("aria-busy", "true");
         elements.resetDemoButton.textContent = "Preparing known state…";
@@ -2317,15 +3153,20 @@
 
         await refreshStats();
         elements.resetDemoButton.disabled = false;
-        elements.dispatchButton.disabled = failures.length > 0;
         elements.resetDemoButton.setAttribute("aria-busy", "false");
         elements.resetDemoButton.textContent = "Reset to known state";
 
         if (failures.length === 0) {
+          const liveStarted = await startLiveMovement({ scrollIntoView: false });
+          if (!liveStarted) {
+            setLiveUI("error");
+            showError("Could not open the live fleet feed after seeding drivers.");
+            return failures;
+          }
           setDispatchFieldsDisabled(false);
           startDriverLivenessRefresh();
-          setLiveUI("locked");
           addLog("SEED", "8/8 Manhattan drivers are available", "success");
+          syncDispatchButtonsAvailability();
         } else {
           setLiveUI("error");
           showError(`Could not seed ${failures.join(", ")}. See the event log for details.`);
@@ -2335,148 +3176,51 @@
 
       async function resetInterviewDemo(options = {}) {
         const { scrollToTop = true, force = false } = options;
+        if (resetInFlight || dispatchInFlight) {
+          return [];
+        }
+        resetInFlight = true;
+        const shouldForce = force || takeoverRequired;
         stopLiveMovement(false);
         elements.eventLog.replaceChildren();
         elements.errorBanner.hidden = true;
         elements.dispatchRadius.value = "5";
-        selectActiveRider(RIDER_TEMPLATES[0].id, { resetResult: false });
+        selectActiveRider(RIDER_TEMPLATES[0].id, { logSelection: false });
         resetDispatchResult();
         validateDispatchInput({ announceError: false });
         addLog("DEMO", "Preparing deterministic 8-driver state");
 
-        const failures = await seedDrivers({ force });
-        if (failures.length === 0) {
-          addLog(
-            "DEMO",
-            "Known state ready · 8 drivers · 3 riders · dispatch to unlock fleet fan-out",
-            "success"
-          );
-        }
-
-        if (scrollToTop) {
-          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-          window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
-        }
-        return failures;
-      }
-
-      function renderDispatchResult(result) {
-        clearMatchedDriver();
-        const success = Boolean(result && result.success);
-        elements.dispatchResult.dataset.state = success ? "matched" : "failed";
-        elements.resultKicker.textContent = success ? "Driver matched" : "No match";
-        elements.resultRequestID.textContent =
-          `request ${result && result.request_id ? result.request_id : "—"}`;
-
-        if (success) {
-          const distance = Number(result.distance_km);
-          const distanceText = Number.isFinite(distance)
-            ? `${distance.toFixed(3)} km Redis GEO straight-line distance`
-            : "Distance unavailable";
-          elements.resultPrimary.textContent = result.driver_id || "Matched driver";
-          elements.resultDetail.textContent = distanceText;
-          matchedDriverID = result.driver_id || "";
-          const pin = document.getElementById(`pin-${result.driver_id}`);
-          if (pin) {
-            pin.classList.add("matched");
+        try {
+          const failures = await seedDrivers({ force: shouldForce });
+          if (failures.length === 0) {
+            takeoverRequired = false;
+            elements.resetDemoButton.textContent = "Reset to known state";
+            addLog(
+              "DEMO",
+              "Known state ready · 8 moving drivers · 3 fixed rider pickups · live fleet feed active",
+              "success"
+            );
           }
-          setDriverState(result.driver_id, "busy");
-          setLiveUI("ready");
-          addLog(
-            "MATCH",
-            `${result.driver_id} assigned · ${distanceText}`,
-            "success"
-          );
-        } else {
-          elements.resultPrimary.textContent = "No driver assigned";
-          elements.resultDetail.textContent =
-            result && result.error ? result.error : "Dispatch request failed.";
-          addLog(
-            "MATCH",
-            elements.resultDetail.textContent,
-            "error"
-          );
-          setLiveUI("locked");
+
+          if (scrollToTop) {
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+          }
+          return failures;
+        } finally {
+          resetInFlight = false;
+          syncDispatchButtonsAvailability();
         }
       }
 
       async function requestDispatch(event) {
         event.preventDefault();
-        const input = validateDispatchInput({ focusInvalid: true, announceError: true });
-        if (!input) {
+        const existing = dispatchResults.get(activeRiderID);
+        if (!isRiderRequestable(existing)) {
+          showError("This rider is already en route or arrived in the current demo session.");
           return;
         }
-        elements.errorBanner.hidden = true;
-        elements.resetDemoButton.disabled = true;
-        setDispatchFieldsDisabled(true);
-
-        setButtonBusy(
-          elements.dispatchButton,
-          true,
-          "Finding nearest driver…",
-          "Find nearest driver"
-        );
-
-        try {
-          await claimDemoSession({ force: false, clearLocks: false });
-        } catch (error) {
-          handleDemoSessionFailure(error);
-          return;
-        }
-
-        const fleetIsLive = await refreshDriverLiveness({ announceError: true });
-        if (!fleetIsLive) {
-          setButtonBusy(
-            elements.dispatchButton,
-            false,
-            "Finding nearest driver…",
-            "Find nearest driver"
-          );
-          elements.resetDemoButton.disabled = false;
-          setDispatchFieldsDisabled(false);
-          return;
-        }
-
-        const requestID = `demo-request-${Date.now().toString(36)}`;
-        addLog(
-          "HTTP",
-          `Dispatching from ${input.longitude.toFixed(4)}, ${input.latitude.toFixed(4)}`
-        );
-
-        try {
-          const result = await apiRequest("/dispatch/request", {
-            method: "POST",
-            body: JSON.stringify({
-              request_id: requestID,
-              longitude: input.longitude,
-              latitude: input.latitude,
-              radius_km: input.radius
-            })
-          });
-          renderDispatchResult(result);
-        } catch (error) {
-          if (error instanceof ApiError && error.data && typeof error.data === "object") {
-            renderDispatchResult(error.data);
-          } else {
-            renderDispatchResult({
-              success: false,
-              request_id: requestID,
-              error: error instanceof Error ? error.message : String(error)
-            });
-          }
-        } finally {
-          setButtonBusy(
-            elements.dispatchButton,
-            false,
-            "Finding nearest driver…",
-            "Find nearest driver"
-          );
-          const hasMatch = Boolean(matchedDriverID);
-          elements.dispatchButton.disabled = hasMatch;
-          elements.resetDemoButton.disabled = false;
-          setDispatchFieldsDisabled(hasMatch);
-          await refreshStats();
-        }
+        await runDispatchRequests([activeRiderID], "single");
       }
 
       async function refreshStats() {
@@ -2614,6 +3358,19 @@
             driver.longitude = longitude;
             driver.latitude = latitude;
             updateDriverMarker(driver);
+            const assignmentRoute = assignmentRoutes.get(driver.id);
+            const assignmentResult = assignmentRoute
+              ? dispatchResults.get(assignmentRoute.riderID)
+              : null;
+            if (
+              assignmentRoute &&
+              assignmentRoute.riderID === riderID &&
+              assignmentRoute.reachedPickup &&
+              rideStatus(assignmentResult) === "en_route" &&
+              !assignmentResult.actionPending
+            ) {
+              void confirmArrival(riderID);
+            }
             receivedDriversThisTick.add(`${riderID}:${driver.id}`);
             if (
               receivedDriversThisTick.size ===
@@ -2641,11 +3398,33 @@
 
         DRIVER_TEMPLATES.forEach((template, index) => {
           const socket = driverSockets.get(template.id);
-          const {
-            longitude,
-            latitude,
-            heading
-          } = advanceDriverRoute(template.id);
+          const driver = drivers.get(template.id);
+          const assignmentRoute = assignmentRoutes.get(template.id);
+          const assignmentResult = assignmentRoute
+            ? dispatchResults.get(assignmentRoute.riderID)
+            : null;
+          let position;
+          let speed = 22 + index;
+          let reachedPickup = false;
+
+          if (assignmentRoute && rideStatus(assignmentResult) === "arrived") {
+            position = {
+              longitude: driver.longitude,
+              latitude: driver.latitude,
+              heading: assignmentRoute.heading || 0
+            };
+            speed = 0;
+          } else if (assignmentRoute && rideStatus(assignmentResult) === "en_route") {
+            position = advancePickupRoute(assignmentRoute);
+            reachedPickup = position.reachedPickup;
+            assignmentRoute.reachedPickup = reachedPickup;
+            speed = reachedPickup ? 0 : 18 + index;
+          } else {
+            position = advanceDriverRoute(template.id);
+          }
+
+          driver.longitude = position.longitude;
+          driver.latitude = position.latitude;
 
           sendSocketMessage(
             socket,
@@ -2653,10 +3432,10 @@
               type: "location_update",
               timestamp: Date.now(),
               payload: {
-                longitude,
-                latitude,
-                heading,
-                speed: 22 + index,
+                longitude: position.longitude,
+                latitude: position.latitude,
+                heading: position.heading,
+                speed,
                 accuracy: 5
               }
             },
@@ -2668,51 +3447,50 @@
       function setLiveUI(state, connectedCount = 0) {
         const isConnecting = state === "connecting";
         const isLive = state === "live";
-        const isReady = state === "ready";
+        const isPaused = state === "paused";
         const isInitializing = state === "initializing";
         const isError = state === "error";
-        elements.startLiveButton.disabled = !isReady;
+        elements.startLiveButton.disabled = isConnecting || isLive || isInitializing || isError;
         elements.stopLiveButton.disabled = !isConnecting && !isLive;
         elements.startLiveButton.setAttribute("aria-busy", String(isConnecting));
         elements.startLiveButton.textContent = isConnecting
           ? "Connecting 11 sockets…"
-          : "Start fleet fan-out";
+          : "Resume live fleet";
         elements.liveStatus.dataset.state = state;
         if (isConnecting) {
           elements.liveStatus.textContent = `Connecting ${connectedCount}/11`;
           elements.socketSummary.textContent =
-            `${connectedCount}/11 sockets open · preparing 3 riders + 8 drivers`;
+            `${connectedCount}/11 sockets open · bringing up 8 drivers and 3 rider listeners`;
         } else if (isLive) {
           elements.liveStatus.textContent = "Live · 11 sockets";
           elements.socketSummary.textContent =
-            "8 browser-simulated driver producers → 3 rider subscribers · 24 deliveries/tick";
-        } else if (isReady) {
-          elements.liveStatus.textContent = "Ready for fan-out";
+            "8 moving drivers publish every second while 3 rider feeds receive 24 updates per tick.";
+        } else if (isPaused) {
+          elements.liveStatus.textContent = "Paused";
           elements.socketSummary.textContent =
-            "Match confirmed · start the functional 11-socket fleet simulation";
+            "Driver motion is paused. Resume to continue the live fleet feed.";
         } else if (isInitializing) {
           elements.liveStatus.textContent = "Preparing known state";
           elements.socketSummary.textContent =
-            "Seeding eight fixed drivers before dispatch is enabled.";
+            "Seeding eight drivers, clearing locks, and opening the live fleet feed.";
         } else if (isError) {
           elements.liveStatus.textContent = "Reset failed";
           elements.socketSummary.textContent =
             "Restore the service connection, then reset to the known state.";
         } else {
-          elements.liveStatus.textContent = "Ready to dispatch";
+          elements.liveStatus.textContent = "Ready";
           elements.socketSummary.textContent =
-            "Known state ready · dispatch once to unlock the fleet fan-out.";
+            "Known state is ready.";
         }
       }
 
-      async function startLiveMovement() {
-        if (
-          movementTimer ||
-          riderSockets.size > 0 ||
-          driverSockets.size > 0 ||
-          !matchedDriverID
-        ) {
-          return;
+      async function startLiveMovement(options = {}) {
+        const { scrollIntoView = true } = options;
+        if (movementTimer) {
+          return true;
+        }
+        if (riderSockets.size > 0 || driverSockets.size > 0) {
+          stopLiveMovement(false);
         }
 
         const generation = ++liveGeneration;
@@ -2730,10 +3508,10 @@
           if (generation === liveGeneration) {
             handleDemoSessionFailure(error);
           }
-          return;
+          return false;
         }
         if (generation !== liveGeneration) {
-          return;
+          return false;
         }
 
         try {
@@ -2745,7 +3523,7 @@
             if (generation !== liveGeneration) {
               intentionalSocketCloses.add(socket);
               socket.close(1000, "Demo cancelled");
-              return;
+              return false;
             }
 
             riderSockets.set(rider.id, socket);
@@ -2778,7 +3556,7 @@
             if (generation !== liveGeneration) {
               intentionalSocketCloses.add(socket);
               socket.close(1000, "Demo cancelled");
-              return;
+              return false;
             }
             driverSockets.set(driver.id, socket);
             attachSocketHealthHandlers(socket, driver.id);
@@ -2788,17 +3566,22 @@
           sendDriverLocations();
           movementTimer = window.setInterval(sendDriverLocations, 1000);
           setLiveUI("live");
-          addLog("WS", "Fleet fan-out started · 11 WebSockets open", "success");
-          const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-          elements.workspace.scrollIntoView({
-            behavior: reduceMotion ? "auto" : "smooth",
-            block: "start"
-          });
+          addLog("WS", "Live fleet feed started · 11 WebSockets open", "success");
+          syncDispatchButtonsAvailability();
+          if (scrollIntoView) {
+            const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+            elements.workspace.scrollIntoView({
+              behavior: reduceMotion ? "auto" : "smooth",
+              block: "start"
+            });
+          }
+          return true;
         } catch (error) {
           if (generation === liveGeneration) {
             reportError("WS", error);
             stopLiveMovement(false);
           }
+          return false;
         }
       }
 
@@ -2827,10 +3610,11 @@
         riderSockets = new Map();
         driverSockets = new Map();
         receivedDriversThisTick.clear();
-        setLiveUI(matchedDriverID ? "ready" : "locked");
+        setLiveUI("paused");
+        syncDispatchButtonsAvailability();
 
         if (logEvent && sockets.length > 0) {
-          addLog("WS", "Fleet fan-out stopped");
+          addLog("WS", "Live fleet feed paused");
         }
       }
 
@@ -2852,7 +3636,8 @@
         for (const driver of drivers.values()) {
           updateDriverMarker(driver, { animate: false });
         }
-        selectActiveRider(RIDER_TEMPLATES[0].id, { resetResult: false });
+        selectActiveRider(RIDER_TEMPLATES[0].id, { logSelection: false });
+        renderDispatchResults();
         validateDispatchInput({ announceError: false });
       }
 
@@ -2863,37 +3648,40 @@
       });
       elements.dismissErrorButton.addEventListener("click", () => {
         elements.errorBanner.hidden = true;
+        if (lastErrorTrigger && lastErrorTrigger.isConnected) {
+          lastErrorTrigger.focus();
+        }
+        lastErrorTrigger = null;
       });
-      elements.refreshHealthButton.addEventListener("click", refreshHealth);
+      elements.refreshHealthButton.addEventListener("click", () => {
+        void refreshHealth();
+      });
       elements.refreshStatsButton.addEventListener("click", async () => {
         await refreshStats();
         addLog("HTTP", "Dispatch stats refreshed");
       });
       elements.resetDemoButton.addEventListener("click", () => {
-        void resetInterviewDemo({ force: true });
+        void resetInterviewDemo({ force: takeoverRequired });
       });
-      elements.startLiveButton.addEventListener("click", startLiveMovement);
+      elements.startLiveButton.addEventListener("click", () => {
+        void startLiveMovement();
+      });
       elements.stopLiveButton.addEventListener("click", () => stopLiveMovement(true));
       elements.dispatchForm.addEventListener("submit", requestDispatch);
+      elements.dispatchAllButton.addEventListener("click", () => {
+        const requestableRiderIDs = RIDER_TEMPLATES
+          .filter((rider) => isRiderRequestable(dispatchResults.get(rider.id)))
+          .map((rider) => rider.id);
+        void runDispatchRequests(requestableRiderIDs, "all");
+      });
       elements.activeRiderSelect.addEventListener("change", () => {
         selectActiveRider(elements.activeRiderSelect.value);
       });
-      elements.pickupLongitude.addEventListener("input", () => {
-        updatePickupMarker();
-        if (matchedDriverID) {
-          stopLiveMovement(false);
-          resetDispatchResult();
-        }
-      });
-      elements.pickupLatitude.addEventListener("input", () => {
-        updatePickupMarker();
-        if (matchedDriverID) {
-          stopLiveMovement(false);
-          resetDispatchResult();
-        }
-      });
+      elements.pickupLongitude.addEventListener("input", updatePickupMarker);
+      elements.pickupLatitude.addEventListener("input", updatePickupMarker);
       elements.dispatchRadius.addEventListener("input", () => {
         validateDispatchInput({ announceError: false });
+        syncDispatchButtonsAvailability();
       });
       elements.clearLogButton.addEventListener("click", () => {
         elements.eventLog.replaceChildren();
@@ -2906,7 +3694,8 @@
 
       initializeMap();
       setLiveUI("initializing");
-      refreshHealth();
+      syncDispatchButtonsAvailability();
+      void refreshHealth();
       void resetInterviewDemo({ scrollToTop: false });
     })();
   </script>

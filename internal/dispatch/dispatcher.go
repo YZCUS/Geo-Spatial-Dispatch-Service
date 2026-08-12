@@ -12,11 +12,13 @@ import (
 
 // DispatchResult represents the outcome of a dispatch request
 type DispatchResult struct {
-	Success   bool    `json:"success"`
-	DriverID  string  `json:"driver_id,omitempty"`
-	RequestID string  `json:"request_id"`
-	Distance  float64 `json:"distance_km,omitempty"`
-	Error     string  `json:"error,omitempty"`
+	Success   bool             `json:"success"`
+	DriverID  string           `json:"driver_id,omitempty"`
+	RequestID string           `json:"request_id"`
+	Distance  float64          `json:"distance_km,omitempty"`
+	Status    AssignmentStatus `json:"status,omitempty"`
+	Error     string           `json:"error,omitempty"`
+	Cause     error            `json:"-"`
 }
 
 // Dispatcher coordinates driver assignment
@@ -24,6 +26,7 @@ type Dispatcher struct {
 	geoService    *geospatial.GeoService
 	driverService *driver.DriverService
 	lockManager   *LockManager
+	lifecycle     *lifecycleManager
 }
 
 // NewDispatcher creates a new dispatcher
@@ -31,17 +34,24 @@ func NewDispatcher(
 	geoService *geospatial.GeoService,
 	driverService *driver.DriverService,
 	lockManager *LockManager,
+	lifecycleConfig ...LifecycleConfig,
 ) *Dispatcher {
+	config := LifecycleConfig{}
+	if len(lifecycleConfig) > 0 {
+		config = lifecycleConfig[0]
+	}
 	return &Dispatcher{
 		geoService:    geoService,
 		driverService: driverService,
 		lockManager:   lockManager,
+		lifecycle:     newLifecycleManager(lockManager.redis, lockManager, config),
 	}
 }
 
 // DispatchRequest represents an incoming dispatch request
 type DispatchRequest struct {
 	RequestID string  `json:"request_id"`
+	RiderID   string  `json:"rider_id,omitempty"`
 	Longitude float64 `json:"longitude"`
 	Latitude  float64 `json:"latitude"`
 	RadiusKm  float64 `json:"radius_km"`
@@ -54,6 +64,19 @@ func (d *Dispatcher) FindAndAssign(ctx context.Context, req DispatchRequest) Dis
 	}
 	if req.RadiusKm == 0 {
 		req.RadiusKm = 5.0 // Default 5km radius
+	}
+	if req.RiderID != "" {
+		active, err := d.lifecycle.active(ctx, req.RiderID)
+		if err != nil {
+			return DispatchResult{RequestID: req.RequestID, Error: err.Error(), Cause: err}
+		}
+		if active != nil {
+			return DispatchResult{
+				RequestID: req.RequestID,
+				Error:     ErrActiveAssignment.Error(),
+				Cause:     ErrActiveAssignment,
+			}
+		}
 	}
 
 	log.Printf("[Dispatcher] Processing request %s at (%.4f, %.4f) radius=%.2fkm",
@@ -108,6 +131,7 @@ func (d *Dispatcher) FindAndAssign(ctx context.Context, req DispatchRequest) Dis
 				Success:   false,
 				RequestID: req.RequestID,
 				Error:     err.Error(),
+				Cause:     err,
 			}
 		}
 		if result.Success {
@@ -126,6 +150,7 @@ func (d *Dispatcher) FindAndAssign(ctx context.Context, req DispatchRequest) Dis
 // tryAssignDriver attempts to assign a specific driver
 func (d *Dispatcher) tryAssignDriver(ctx context.Context, req DispatchRequest, loc geospatial.Location) (DispatchResult, error) {
 	driverID := loc.ID
+	var assignmentStatus AssignmentStatus
 
 	// Step 1: Try to acquire lock
 	locked, err := d.lockManager.TryLock(ctx, driverID, req.RequestID)
@@ -133,6 +158,15 @@ func (d *Dispatcher) tryAssignDriver(ctx context.Context, req DispatchRequest, l
 		return DispatchResult{Success: false, RequestID: req.RequestID}, err
 	}
 	if !locked {
+		return DispatchResult{Success: false, RequestID: req.RequestID}, nil
+	}
+	owner, err := d.lifecycle.driverOwner(ctx, driverID)
+	if err != nil {
+		_ = d.lockManager.Unlock(ctx, driverID, req.RequestID)
+		return DispatchResult{Success: false, RequestID: req.RequestID}, err
+	}
+	if owner != "" {
+		_ = d.lockManager.Unlock(ctx, driverID, req.RequestID)
 		return DispatchResult{Success: false, RequestID: req.RequestID}, nil
 	}
 
@@ -147,6 +181,39 @@ func (d *Dispatcher) tryAssignDriver(ctx context.Context, req DispatchRequest, l
 		return DispatchResult{Success: false, RequestID: req.RequestID}, err
 	}
 
+	if req.RiderID != "" {
+		assignment := Assignment{
+			RequestID:       req.RequestID,
+			RiderID:         req.RiderID,
+			DriverID:        driverID,
+			PickupLongitude: req.Longitude,
+			PickupLatitude:  req.Latitude,
+			Status:          AssignmentEnRoute,
+		}
+		if err := validatePickup(assignment); err != nil {
+			_ = d.ReleaseDriver(ctx, driverID, req.RequestID)
+			return DispatchResult{Success: false, RequestID: req.RequestID}, err
+		}
+		if err := d.lifecycle.create(ctx, assignment); err != nil {
+			if errors.Is(err, ErrDriverOwnershipConflict) {
+				_ = d.lockManager.Unlock(ctx, driverID, req.RequestID)
+				active, refreshErr := d.lifecycle.refreshActiveDriver(ctx, driverID)
+				if refreshErr != nil {
+					return DispatchResult{Success: false, RequestID: req.RequestID}, refreshErr
+				}
+				if !active {
+					_ = d.driverService.SetAvailable(ctx, driverID)
+				}
+				return DispatchResult{Success: false, RequestID: req.RequestID}, nil
+			}
+			if releaseErr := d.ReleaseDriver(ctx, driverID, req.RequestID); releaseErr != nil {
+				log.Printf("[Dispatcher] Failed to roll back driver %s for request %s: %v", driverID, req.RequestID, releaseErr)
+			}
+			return DispatchResult{Success: false, RequestID: req.RequestID}, err
+		}
+		assignmentStatus = AssignmentEnRoute
+	}
+
 	log.Printf("[Dispatcher] Successfully assigned driver %s to request %s", driverID, req.RequestID)
 
 	return DispatchResult{
@@ -154,7 +221,60 @@ func (d *Dispatcher) tryAssignDriver(ctx context.Context, req DispatchRequest, l
 		DriverID:  driverID,
 		RequestID: req.RequestID,
 		Distance:  loc.DistanceKm,
+		Status:    assignmentStatus,
 	}, nil
+}
+
+// CancelAssignment cancels only an en-route assignment. The lifecycle manager
+// atomically changes assignment state, releases the driver, clears the owned
+// lock, and frees the rider to request another ride.
+func (d *Dispatcher) CancelAssignment(ctx context.Context, requestID string) (*Assignment, error) {
+	if err := validateLifecycleID(requestID); err != nil {
+		return nil, err
+	}
+	return d.lifecycle.cancel(ctx, requestID)
+}
+
+// ArriveAssignment confirms the driver's latest Redis GEO position is close
+// enough to the pickup before atomically transitioning en_route to arrived.
+func (d *Dispatcher) ArriveAssignment(ctx context.Context, requestID string) (*Assignment, error) {
+	if err := validateLifecycleID(requestID); err != nil {
+		return nil, err
+	}
+	assignment, err := d.lifecycle.get(ctx, requestID)
+	if err != nil {
+		return nil, err
+	}
+	if assignment.Status != AssignmentEnRoute {
+		return nil, ErrAssignmentStateConflict
+	}
+	position, err := d.geoService.GetLocation(ctx, assignment.DriverID)
+	if err != nil {
+		return nil, err
+	}
+	distance := distanceKm(
+		position.Longitude,
+		position.Latitude,
+		assignment.PickupLongitude,
+		assignment.PickupLatitude,
+	)
+	if distance > d.lifecycle.arrivalThresholdKm {
+		return nil, ErrDriverTooFar
+	}
+	return d.lifecycle.arrive(ctx, assignment)
+}
+
+func (d *Dispatcher) GetAssignment(ctx context.Context, requestID string) (*Assignment, error) {
+	return d.lifecycle.get(ctx, requestID)
+}
+
+// ResetRiderAssignment is used only by the scoped interview-demo reset. It
+// cancels an en-route assignment and otherwise clears that rider's active key.
+func (d *Dispatcher) ResetRiderAssignment(ctx context.Context, riderID string) error {
+	if err := validateLifecycleID(riderID); err != nil {
+		return err
+	}
+	return d.lifecycle.resetRider(ctx, riderID)
 }
 
 // ReleaseDriver releases a driver back to available status
@@ -178,6 +298,13 @@ func (d *Dispatcher) UpdateDriverLocation(ctx context.Context, driverID string, 
 	err := d.geoService.AddLocation(ctx, loc)
 	if err != nil {
 		return err
+	}
+	active, err := d.lifecycle.refreshActiveDriver(ctx, driverID)
+	if err != nil {
+		return err
+	}
+	if active {
+		return nil
 	}
 
 	// A fresh location can safely bring an expired driver back online. A
