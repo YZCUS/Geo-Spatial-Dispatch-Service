@@ -48,6 +48,8 @@ represent a deployed load-balancer setup.
 - Distance-sorted results with Redis-calculated straight-line distances (`GEORADIUS`);
   these are not road-route ETA estimates
 - Atomic available-to-busy transitions and distributed driver locks
+- Redis-backed `en_route -> cancelled|arrived` transitions for requests that
+  include a rider ID
 
 ### Real-Time Communication
 - WebSocket connections for drivers and riders
@@ -119,14 +121,32 @@ make demo-up
 ```
 
 Open [http://localhost:8080](http://localhost:8080). The interview configuration
-automatically prepares eight Manhattan drivers, visualizes three rider pickups,
-then lets you dispatch the nearest driver and start browser-simulated fleet
-movement through 11 WebSocket connections.
-This map animation is browser simulated and not a routing/benchmark system.
+automatically prepares eight Manhattan drivers, opens 11 WebSocket connections,
+and starts browser-simulated fleet movement while three rider pickups remain
+fixed. A request queries the latest Redis GEO positions at that moment.
+After assignment, each matched car follows a browser-simulated Manhattan path
+to its rider in roughly 8–15 seconds while unassigned cars keep roaming.
 
 Use this exact walkthrough:
 
-`Reset to known state -> R1 dispatch expected demo-driver-02 / ~0.122 km straight-line -> Start fleet fan-out (11 sockets)`
+1. Reset to the known state and confirm eight roaming cars, three fixed riders,
+   and 11 open sockets.
+2. Request one rider. Confirm the row shows **En route**, the assigned driver
+   turns toward that pickup, and the row exposes **Cancel ride**.
+3. Cancel it. Confirm the row shows **Cancelled · rebook available**, the car
+   returns to roaming/available, and that rider can be requested again.
+4. Request the rider again and let the car reach pickup. Confirm the backend
+   accepts `/dispatch/arrive`, the row shows **Arrived**, the car stops, and
+   cancellation and rebooking are closed for that rider until **Reset to known state** starts a new demo session.
+5. Reset, choose **Request all 3 at once**, and confirm three unique assigned
+   drivers independently travel toward their riders.
+
+The assigned IDs and distances can change with request timing because the cars
+are already moving. The invariant is that each request ranks the current
+straight-line positions and concurrent requests cannot claim the same driver.
+Redis GEO provides straight-line match distances; the browser—not the backend—
+simulates the road-grid movement. The backend owns request, cancel, and arrive
+state transitions.
 
 ```bash
 make demo-smoke
@@ -134,7 +154,8 @@ make demo-down
 ```
 
 `demo-smoke` performs the same core path without a browser and fails with a
-non-zero exit code if the nearest driver is not assigned.
+non-zero exit code if the nearest driver is not assigned. It does not validate
+the browser-only movement animation.
 
 ## Local Development
 
@@ -197,6 +218,8 @@ Environment variables:
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/dispatch/request` | Request a driver |
+| POST | `/dispatch/cancel` | Cancel an en-route request and release its driver |
+| POST | `/dispatch/arrive` | Mark an en-route request arrived at pickup |
 | GET | `/dispatch/stats` | Get dispatch statistics |
 
 #### Rate Limiting
@@ -241,8 +264,24 @@ curl -X POST http://localhost:8080/driver/status \
 ```bash
 curl -X POST http://localhost:8080/dispatch/request \
   -H "Content-Type: application/json" \
-  -d '{"longitude":-73.9857,"latitude":40.7484,"radius_km":5}'
+  -d '{"request_id":"request-1","rider_id":"rider1","longitude":-73.9857,"latitude":40.7484,"radius_km":5}'
 ```
+
+Successful requests return `status: "en_route"`. Use the returned request ID
+for the next lifecycle transition:
+
+```bash
+curl -X POST http://localhost:8080/dispatch/cancel \
+  -H "Content-Type: application/json" \
+  -d '{"request_id":"request-1"}'
+
+curl -X POST http://localhost:8080/dispatch/arrive \
+  -H "Content-Type: application/json" \
+  -d '{"request_id":"request-1"}'
+```
+
+Cancel and arrive are alternative transitions for an en-route request; use one,
+not both, in a real flow.
 
 ### Connect via WebSocket
 
@@ -279,9 +318,10 @@ wscat -c "ws://localhost:8080/ws/rider?rider_id=rider1"
 
 ## Current Scope and Known Limits
 
-- Dispatch request IDs are returned to callers, but request-level idempotency
-  is not yet persisted. A client retry with the same ID can assign another
-  driver after the first assignment.
+- Lifecycle records are created only when a dispatch includes `rider_id`.
+  Legacy requests without one remain stateless, so retrying their request ID
+  can assign another driver. The Redis lifecycle record is not a production
+  trip ledger or an outbox for downstream side effects.
 - Driver status has a 30-second TTL. REST and WebSocket location updates can
   bring a driver online; heartbeat messages only refresh an existing status, so
   they cannot revive a stale GEO position by themselves.

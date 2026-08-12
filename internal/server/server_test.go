@@ -56,7 +56,15 @@ func setupTestServer(t *testing.T) *Server {
 	geoService := geospatial.New(rdb, "test-locations")
 	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
 	lockManager := dispatch.NewLockManager(rdb, "test-lock", 10*time.Second)
-	dispatcher := dispatch.NewDispatcher(geoService, driverService, lockManager)
+	dispatcher := dispatch.NewDispatcher(geoService, driverService, lockManager, dispatch.LifecycleConfig{
+		AssignmentPrefix:   "test-assignment",
+		RiderActivePrefix:  "test-rider-active",
+		DriverActivePrefix: "test-driver-active",
+		DriverStatusPrefix: "test-driver:status",
+		AssignmentTTL:      time.Hour,
+		DriverStatusTTL:    30 * time.Second,
+		ArrivalThresholdKm: 0.05,
+	})
 	hub := realtime.NewHub(nil, nil)
 
 	return &Server{
@@ -113,8 +121,13 @@ func TestHandleDemo_InterviewConfiguration(t *testing.T) {
 		"11 sockets",
 		"road-constrained",
 		"Reset to known state",
-		"Redis GEO straight-line distance",
-		"Fleet WebSocket fan-out simulation",
+		"Redis GEO distance at request time",
+		"Live fleet feed",
+		"Request all 3 at once",
+		`id="assignmentList"`,
+		`readonly aria-readonly="true"`,
+		"8 moving drivers",
+		"3 fixed rider pickups",
 		"24 deliveries",
 		`id="dispatchButton" type="submit" disabled`,
 		"resetInterviewDemo({ scrollToTop: false })",
@@ -124,7 +137,12 @@ func TestHandleDemo_InterviewConfiguration(t *testing.T) {
 		}
 	}
 
-	for _, removed := range []string{`id="seedButton"`, `id="seedPanelButton"`} {
+	for _, removed := range []string{
+		`id="seedButton"`,
+		`id="seedPanelButton"`,
+		"dispatch to unlock fleet fan-out",
+		"dispatch once to unlock",
+	} {
 		if strings.Contains(w.Body.String(), removed) {
 			t.Errorf("Demo page still contains redundant control %q", removed)
 		}
@@ -318,6 +336,98 @@ func TestHandleDemoReset_ForceTakeoverClearsOnlyDemoLocks(t *testing.T) {
 	}
 	if owner := server.Redis.Get(ctx, demoSessionLeaseKey).Val(); owner != "tab-b" {
 		t.Fatalf("Expected lease owner tab-b, got %q", owner)
+	}
+}
+
+func TestHandleDemoReset_ClearsOnlyFixedRiderAssignments(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Redis.Close()
+	ctx := context.Background()
+
+	seed := func(driverID string, lon float64) {
+		t.Helper()
+		if err := server.geoService.AddLocation(ctx, geospatial.Location{ID: driverID, Longitude: lon, Latitude: 0}); err != nil {
+			t.Fatalf("AddLocation(%s): %v", driverID, err)
+		}
+		if err := server.driverService.SetStatus(ctx, driverID, driver.StatusAvailable); err != nil {
+			t.Fatalf("SetStatus(%s): %v", driverID, err)
+		}
+	}
+	seed("demo-driver-01", 0)
+	seed("production-driver", 0.001)
+
+	demoRide := server.dispatcher.FindAndAssign(ctx, dispatch.DispatchRequest{
+		RequestID: "demo-request", RiderID: "demo-rider-01", Longitude: 0, Latitude: 0, RadiusKm: 2,
+	})
+	if !demoRide.Success {
+		t.Fatalf("demo dispatch = %+v", demoRide)
+	}
+	productionRide := server.dispatcher.FindAndAssign(ctx, dispatch.DispatchRequest{
+		RequestID: "production-request", RiderID: "production-rider", Longitude: 0, Latitude: 0, RadiusKm: 2,
+	})
+	if !productionRide.Success {
+		t.Fatalf("production dispatch = %+v", productionRide)
+	}
+
+	req := newDemoResetRequest(t, "tab-a", false, nil)
+	w := httptest.NewRecorder()
+	server.HandleDemoReset(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("reset status=%d body=%q", w.Code, w.Body.String())
+	}
+	if active := server.Redis.Get(ctx, "test-rider-active:demo-rider-01").Val(); active != "" {
+		t.Fatalf("demo rider active request = %q", active)
+	}
+	if owner := server.Redis.Get(ctx, "test-driver-active:demo-driver-01").Val(); owner != "" {
+		t.Fatalf("demo driver owner = %q", owner)
+	}
+	demoAssignment, err := server.dispatcher.GetAssignment(ctx, "demo-request")
+	if err != nil || demoAssignment.Status != dispatch.AssignmentCancelled {
+		t.Fatalf("demo assignment = %+v, err=%v", demoAssignment, err)
+	}
+	if active := server.Redis.Get(ctx, "test-rider-active:production-rider").Val(); active != "production-request" {
+		t.Fatalf("production rider active request = %q", active)
+	}
+	if owner := server.Redis.Get(ctx, "test-driver-active:production-driver").Val(); owner != "production-request" {
+		t.Fatalf("production driver owner = %q", owner)
+	}
+}
+
+func TestHandleDemoReset_ClearsArrivedDemoOwnershipAndKeepsHistory(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Redis.Close()
+	ctx := context.Background()
+	if err := server.geoService.AddLocation(ctx, geospatial.Location{ID: "demo-driver-01", Longitude: 0, Latitude: 0}); err != nil {
+		t.Fatalf("AddLocation: %v", err)
+	}
+	if err := server.driverService.SetStatus(ctx, "demo-driver-01", driver.StatusAvailable); err != nil {
+		t.Fatalf("SetStatus: %v", err)
+	}
+	ride := server.dispatcher.FindAndAssign(ctx, dispatch.DispatchRequest{
+		RequestID: "demo-arrived", RiderID: "demo-rider-01", Longitude: 0, Latitude: 0, RadiusKm: 2,
+	})
+	if !ride.Success {
+		t.Fatalf("dispatch = %+v", ride)
+	}
+	if _, err := server.dispatcher.ArriveAssignment(ctx, ride.RequestID); err != nil {
+		t.Fatalf("ArriveAssignment: %v", err)
+	}
+
+	req := newDemoResetRequest(t, "tab-a", false, nil)
+	w := httptest.NewRecorder()
+	server.HandleDemoReset(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("reset status=%d body=%q", w.Code, w.Body.String())
+	}
+	if active := server.Redis.Get(ctx, "test-rider-active:demo-rider-01").Val(); active != "" {
+		t.Fatalf("demo rider active request = %q", active)
+	}
+	if owner := server.Redis.Get(ctx, "test-driver-active:demo-driver-01").Val(); owner != "" {
+		t.Fatalf("demo driver owner = %q", owner)
+	}
+	assignment, err := server.dispatcher.GetAssignment(ctx, ride.RequestID)
+	if err != nil || assignment.Status != dispatch.AssignmentArrived {
+		t.Fatalf("arrived assignment history = %+v, err=%v", assignment, err)
 	}
 }
 

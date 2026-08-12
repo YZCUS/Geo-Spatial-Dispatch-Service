@@ -28,7 +28,15 @@ func setupTestDispatch(t *testing.T) (*Dispatcher, *redis.Client) {
 	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
 	lockManager := NewLockManager(rdb, "test-lock", 10*time.Second)
 
-	dispatcher := NewDispatcher(geoService, driverService, lockManager)
+	dispatcher := NewDispatcher(geoService, driverService, lockManager, LifecycleConfig{
+		AssignmentPrefix:   "test-assignment",
+		RiderActivePrefix:  "test-rider-active",
+		DriverActivePrefix: "test-driver-active",
+		DriverStatusPrefix: "test-driver:status",
+		AssignmentTTL:      time.Hour,
+		DriverStatusTTL:    30 * time.Second,
+		ArrivalThresholdKm: 0.05,
+	})
 
 	return dispatcher, rdb
 }
@@ -198,6 +206,103 @@ func TestDispatcher_ConcurrentAssignment(t *testing.T) {
 	// Only one request should succeed
 	if successCount != 1 {
 		t.Errorf("Expected exactly 1 successful assignment, got %d", successCount)
+	}
+}
+
+func TestDispatcher_ConcurrentAssignmentsUseDistinctDrivers(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	geoService := geospatial.New(rdb, "test-geo")
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+
+	for i := 0; i < 3; i++ {
+		driverID := fmt.Sprintf("driver%d", i+1)
+		if err := geoService.AddLocation(ctx, geospatial.Location{
+			ID:        driverID,
+			Longitude: float64(i) * 0.001,
+			Latitude:  0,
+		}); err != nil {
+			t.Fatalf("AddLocation(%s) failed: %v", driverID, err)
+		}
+		if err := driverService.SetStatus(ctx, driverID, driver.StatusAvailable); err != nil {
+			t.Fatalf("SetStatus(%s) failed: %v", driverID, err)
+		}
+	}
+
+	start := make(chan struct{})
+	results := make(chan DispatchResult, 3)
+	for i := 0; i < 3; i++ {
+		go func(i int) {
+			<-start
+			results <- dispatcher.FindAndAssign(ctx, DispatchRequest{
+				RequestID: fmt.Sprintf("rider-request-%d", i+1),
+				Longitude: 0,
+				Latitude:  0,
+				RadiusKm:  10,
+			})
+		}(i)
+	}
+	close(start)
+
+	assignedDrivers := make(map[string]string, 3)
+	for i := 0; i < 3; i++ {
+		result := <-results
+		if !result.Success {
+			t.Fatalf("Concurrent request %s failed: %s", result.RequestID, result.Error)
+		}
+		if previousRequest, duplicate := assignedDrivers[result.DriverID]; duplicate {
+			t.Fatalf(
+				"Driver %s assigned to both %s and %s",
+				result.DriverID,
+				previousRequest,
+				result.RequestID,
+			)
+		}
+		assignedDrivers[result.DriverID] = result.RequestID
+	}
+
+	if len(assignedDrivers) != 3 {
+		t.Fatalf("Expected 3 distinct assigned drivers, got %d", len(assignedDrivers))
+	}
+}
+
+func TestDispatcher_UsesLatestDriverLocationsAtRequestTime(t *testing.T) {
+	dispatcher, rdb := setupTestDispatch(t)
+	defer rdb.Close()
+
+	ctx := context.Background()
+	driverService := driver.NewDriverService(rdb, "test-driver", 30*time.Second)
+	for _, driverID := range []string{"initially-near", "newly-near"} {
+		if err := driverService.SetStatus(ctx, driverID, driver.StatusAvailable); err != nil {
+			t.Fatalf("SetStatus(%s) failed: %v", driverID, err)
+		}
+	}
+
+	if err := dispatcher.UpdateDriverLocation(ctx, "initially-near", 0.001, 0); err != nil {
+		t.Fatalf("Set initial location for initially-near: %v", err)
+	}
+	if err := dispatcher.UpdateDriverLocation(ctx, "newly-near", 0.010, 0); err != nil {
+		t.Fatalf("Set initial location for newly-near: %v", err)
+	}
+
+	// Simulate the live fleet moving before the rider requests a car.
+	if err := dispatcher.UpdateDriverLocation(ctx, "initially-near", 0.020, 0); err != nil {
+		t.Fatalf("Move initially-near: %v", err)
+	}
+	if err := dispatcher.UpdateDriverLocation(ctx, "newly-near", 0.0001, 0); err != nil {
+		t.Fatalf("Move newly-near: %v", err)
+	}
+
+	result := dispatcher.FindAndAssign(ctx, DispatchRequest{
+		RequestID: "request-after-movement",
+		Longitude: 0,
+		Latitude:  0,
+		RadiusKm:  10,
+	})
+	if !result.Success || result.DriverID != "newly-near" {
+		t.Fatalf("Expected latest position to select newly-near, got %+v", result)
 	}
 }
 
