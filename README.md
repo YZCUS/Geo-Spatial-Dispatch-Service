@@ -122,31 +122,34 @@ make demo-up
 
 Open [http://localhost:8080](http://localhost:8080). The interview configuration
 automatically prepares eight Manhattan drivers, opens 11 WebSocket connections,
-and starts browser-simulated fleet movement while three rider pickups remain
-fixed. A request queries the latest Redis GEO positions at that moment.
-After assignment, each matched car follows a browser-simulated Manhattan path
-to its rider in roughly 8–15 seconds while unassigned cars keep roaming.
+and starts browser-simulated fleet movement while three riders remain fixed
+inside buildings. Each rider is paired with the closest point on the road grid.
+A request ranks drivers around the rider's location, then the assigned car stays
+on the road and travels to that roadside pickup in roughly 8–15 seconds while
+unassigned cars keep roaming.
 
 Use this exact walkthrough:
 
 1. Reset to the known state and confirm eight roaming cars, three fixed riders,
-   and 11 open sockets.
+   three roadside pickup rings, and 11 open sockets.
 2. Request one rider. Confirm the row shows **En route**, the assigned driver
-   turns toward that pickup, and the row exposes **Cancel ride**.
+   turns toward the closest roadside pickup without entering a building, and
+   the row exposes **Cancel ride**.
 3. Cancel it. Confirm the row shows **Cancelled · rebook available**, the car
    returns to roaming/available, and that rider can be requested again.
-4. Request the rider again and let the car reach pickup. Confirm the backend
-   accepts `/dispatch/arrive`, the row shows **Arrived**, the car stops, and
-   cancellation and rebooking are closed for that rider until **Reset to known state** starts a new demo session.
+4. Request the rider again and let the car reach the roadside pickup. Confirm
+   the backend accepts `/dispatch/arrive`, the row shows **Arrived**, the car
+   remains on the road, and cancellation and rebooking are closed until Reset.
 5. Reset, choose **Request all 3 at once**, and confirm three unique assigned
-   drivers independently travel toward their riders.
+   drivers independently travel toward their riders' roadside pickups.
 
 The assigned IDs and distances can change with request timing because the cars
 are already moving. The invariant is that each request ranks the current
 straight-line positions and concurrent requests cannot claim the same driver.
 Redis GEO provides straight-line match distances; the browser—not the backend—
-simulates the road-grid movement. The backend owns request, cancel, and arrive
-state transitions.
+simulates the road-grid movement. Rider coordinates are used for matching;
+optional `pickup_longitude` and `pickup_latitude` coordinates identify the
+roadside arrival target. The backend owns request, cancel, and arrive state.
 
 ```bash
 make demo-smoke
@@ -268,7 +271,9 @@ curl -X POST http://localhost:8080/dispatch/request \
 ```
 
 Successful requests return `status: "en_route"`. Use the returned request ID
-for the next lifecycle transition:
+for the next lifecycle transition. When the rider is not standing on a drivable
+road, provide `pickup_longitude` and `pickup_latitude` together: matching still
+uses the rider coordinates, while arrival uses the separate pickup coordinates.
 
 ```bash
 curl -X POST http://localhost:8080/dispatch/cancel \

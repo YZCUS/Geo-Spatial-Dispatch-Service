@@ -525,7 +525,7 @@
       --pin-color: var(--primary);
       z-index: 3;
       opacity: 0.72;
-      transform: translate(-28px, -28px);
+      transform: translate(-10px, -10px);
     }
 
     .map-marker.rider .pin {
@@ -577,10 +577,48 @@
       box-shadow: 0 0 0 4px rgb(94 106 210 / 28%);
     }
 
-    .map-marker.arrived .pin,
-    .map-marker.rider[data-ride-status="arrived"] .pin {
+    .map-marker.arrived .pin {
       background: var(--success);
       box-shadow: 0 0 0 4px rgb(39 166 68 / 22%);
+    }
+
+    .roadside-pickup {
+      position: absolute;
+      z-index: 2;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--primary-hover);
+      border-radius: 50%;
+      background: #090a0b;
+      box-shadow: 0 0 0 2px rgb(94 106 210 / 16%);
+      transform: translate(-6px, -6px);
+      pointer-events: none;
+    }
+
+    .roadside-pickup.active-request {
+      box-shadow: 0 0 0 4px rgb(94 106 210 / 24%);
+    }
+
+    .roadside-pickup[data-ride-status="arrived"] {
+      border-color: var(--success);
+      box-shadow: 0 0 0 3px rgb(39 166 68 / 20%);
+    }
+
+    .pickup-connector {
+      position: absolute;
+      z-index: 1;
+      border-color: rgb(148 157 177 / 42%);
+      pointer-events: none;
+    }
+
+    .pickup-connector.horizontal {
+      border-top-style: dashed;
+      border-top-width: 1px;
+    }
+
+    .pickup-connector.vertical {
+      border-left-style: dashed;
+      border-left-width: 1px;
     }
 
     .map-footer {
@@ -615,6 +653,11 @@
       border-radius: 2px;
       background: var(--primary);
       transform: rotate(45deg);
+    }
+
+    .legend-dot.roadside {
+      border: 2px solid var(--primary-hover);
+      background: transparent;
     }
 
     .legend-dot.matched {
@@ -1217,8 +1260,8 @@
           <p class="eyebrow">Interview walkthrough</p>
           <h1 id="page-title">Dispatch, cancel, and complete a Manhattan pickup.</h1>
           <p class="hero-copy">
-            Watch eight cars roam while rider pickups stay fixed. Assigned drivers turn toward
-            their riders, with cancellation open until the backend confirms arrival.
+            Riders stay inside buildings while each request snaps to the nearest roadside pickup.
+            Assigned drivers remain on the street, with cancellation open until arrival.
           </p>
         </div>
       </section>
@@ -1233,13 +1276,13 @@
         <article class="card">
           <header class="card-header">
             <div>
-              <h2>Manhattan operations map</h2>
-              <p>3 fixed riders · 8 road-constrained simulated drivers · 1-second updates</p>
+              <h2 id="map-title">Manhattan operations map</h2>
+              <p>3 building locations · 3 roadside pickups · 8 moving drivers</p>
             </div>
             <span class="live-status" id="liveStatus" data-state="initializing" role="status">Preparing known state</span>
           </header>
 
-          <div class="map-wrap" id="map" aria-label="Map showing three rider requests and eight demo drivers">
+          <div class="map-wrap" id="map" role="group" aria-labelledby="map-title">
             <svg class="map-art" viewBox="0 0 760 510" preserveAspectRatio="none" aria-hidden="true">
               <rect class="land" width="760" height="510"></rect>
               <g>
@@ -1314,6 +1357,7 @@
               </g>
             </svg>
 
+            <div id="pickupLayer"></div>
             <div id="riderLayer"></div>
             <div id="driverLayer"></div>
             <span class="map-grid-reference">40.738–40.758° N</span>
@@ -1321,10 +1365,11 @@
 
           <div class="map-footer">
             <div class="legend" aria-label="Map legend">
-              <span class="legend-item"><span class="legend-dot rider" aria-hidden="true"></span>Active rider request</span>
-              <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span>Driver on road grid</span>
+              <span class="legend-item"><span class="legend-dot rider" aria-hidden="true"></span>Rider in building</span>
+              <span class="legend-item"><span class="legend-dot roadside" aria-hidden="true"></span>Roadside pickup</span>
+              <span class="legend-item"><span class="legend-dot" aria-hidden="true"></span>Driver on road</span>
               <span class="legend-item"><span class="legend-dot matched" aria-hidden="true"></span>En-route driver</span>
-              <span class="legend-item"><span class="legend-dot arrived" aria-hidden="true"></span>Arrived driver</span>
+              <span class="legend-item"><span class="legend-dot arrived" aria-hidden="true"></span>Driver at pickup</span>
             </div>
             <code id="mapCoordinateReadout">Active demo-rider-01 · −73.98570, 40.74840</code>
           </div>
@@ -1350,15 +1395,15 @@
                 <div class="field full">
                   <label for="activeRiderSelect">Active rider request</label>
                   <select id="activeRiderSelect" name="activeRider" disabled></select>
-                  <span class="field-hint">Choose which fixed pickup to request next.</span>
+                  <span class="field-hint">Choose which fixed rider requests a roadside pickup.</span>
                 </div>
                 <div class="field">
-                  <label for="pickupLongitude">Longitude</label>
+                  <label for="pickupLongitude">Rider longitude</label>
                   <input id="pickupLongitude" name="longitude" type="number" min="-180" max="180" step="0.0001" value="-73.9857" inputmode="decimal" aria-errormessage="pickupLongitudeError" required readonly aria-readonly="true">
                   <span class="field-error" id="pickupLongitudeError" hidden>Enter longitude between -180 and 180.</span>
                 </div>
                 <div class="field">
-                  <label for="pickupLatitude">Latitude</label>
+                  <label for="pickupLatitude">Rider latitude</label>
                   <input id="pickupLatitude" name="latitude" type="number" min="-90" max="90" step="0.0001" value="40.7484" inputmode="decimal" aria-errormessage="pickupLatitudeError" required readonly aria-readonly="true">
                   <span class="field-error" id="pickupLatitudeError" hidden>Enter latitude between -90 and 90.</span>
                 </div>
@@ -1385,7 +1430,7 @@
             <div class="result-panel" id="dispatchResult" data-state="idle" aria-live="polite">
               <div class="result-kicker" id="resultKicker">Ready</div>
               <div class="result-primary" id="resultPrimary">No dispatch yet</div>
-              <div class="result-detail" id="resultDetail">Choose a rider or launch all three fixed pickups together, then watch each car approach.</div>
+              <div class="result-detail" id="resultDetail">Choose a rider or launch all three roadside pickups together, then watch each car approach.</div>
               <div class="result-validation" id="resultValidation">Unique driver check pending.</div>
               <div class="result-id" id="resultRequestID">0 requests shown</div>
               <ol class="result-list" id="assignmentList" aria-label="Ride lifecycle assignments"></ol>
@@ -1585,6 +1630,12 @@
       const riders = new Map(
         RIDER_TEMPLATES.map((rider) => [rider.id, { ...rider }])
       );
+      const roadsidePickups = new Map(
+        RIDER_TEMPLATES.map((rider) => {
+          const point = nearestRoadPickup(projectPoint(rider.longitude, rider.latitude));
+          return [rider.id, Object.freeze({ ...point, ...unprojectPoint(point) })];
+        })
+      );
 
       const elements = {
         skipLink: document.querySelector(".skip-link"),
@@ -1603,6 +1654,7 @@
         errorBanner: document.getElementById("errorBanner"),
         errorMessage: document.getElementById("errorMessage"),
         dismissErrorButton: document.getElementById("dismissErrorButton"),
+        pickupLayer: document.getElementById("pickupLayer"),
         driverLayer: document.getElementById("driverLayer"),
         riderLayer: document.getElementById("riderLayer"),
         driverList: document.getElementById("driverList"),
@@ -1986,6 +2038,33 @@
         ));
       }
 
+      function isRoadPoint(point) {
+        return ROAD_AVENUES.some((left) => nearlyEqual(point.left, left)) ||
+          ROAD_STREETS.some((top) => nearlyEqual(point.top, top));
+      }
+
+      function isLegalRoadSegment(start, end) {
+        const horizontal = nearlyEqual(start.top, end.top) &&
+          ROAD_STREETS.some((top) => nearlyEqual(start.top, top));
+        const vertical = nearlyEqual(start.left, end.left) &&
+          ROAD_AVENUES.some((left) => nearlyEqual(start.left, left));
+        return horizontal || vertical;
+      }
+
+      function nearestRoadPickup(point) {
+        const avenueCandidate = {
+          left: closestRoadCoordinate(ROAD_AVENUES, point.left),
+          top: point.top
+        };
+        const streetCandidate = {
+          left: point.left,
+          top: closestRoadCoordinate(ROAD_STREETS, point.top)
+        };
+        return pointDistancePx(point, avenueCandidate) <= pointDistancePx(point, streetCandidate)
+          ? avenueCandidate
+          : streetCandidate;
+      }
+
       function appendWaypoint(waypoints, point) {
         const previous = waypoints[waypoints.length - 1];
         if (
@@ -1999,23 +2078,96 @@
       }
 
       function buildPickupWaypoints(start, pickup) {
-        const pickupAvenue = closestRoadCoordinate(ROAD_AVENUES, pickup.left);
-        const pickupStreet = closestRoadCoordinate(ROAD_STREETS, pickup.top);
+        if (!isRoadPoint(start) || !isRoadPoint(pickup)) {
+          throw new Error("Pickup routes must start and finish on a road");
+        }
+        if (isLegalRoadSegment(start, pickup)) {
+          return [pickup].filter((point) => (
+            !nearlyEqual(point.left, start.left) || !nearlyEqual(point.top, start.top)
+          ));
+        }
+
         const startsOnAvenue = ROAD_AVENUES.some((left) => nearlyEqual(left, start.left));
-        const startsOnStreet = ROAD_STREETS.some((top) => nearlyEqual(top, start.top));
+        const pickupOnAvenue = ROAD_AVENUES.some((left) => nearlyEqual(left, pickup.left));
         const waypoints = [];
 
-        if (startsOnAvenue && !startsOnStreet) {
-          appendWaypoint(waypoints, { left: start.left, top: pickupStreet });
+        if (startsOnAvenue !== pickupOnAvenue) {
+          appendWaypoint(waypoints, startsOnAvenue
+            ? { left: start.left, top: pickup.top }
+            : { left: pickup.left, top: start.top });
+        } else if (startsOnAvenue) {
+          const connectorStreet = ROAD_STREETS.reduce((best, street) => {
+            const bestDistance = pointDistancePx(start, { left: start.left, top: best }) +
+              pointDistancePx({ left: pickup.left, top: best }, pickup);
+            const candidateDistance = pointDistancePx(start, { left: start.left, top: street }) +
+              pointDistancePx({ left: pickup.left, top: street }, pickup);
+            return candidateDistance < bestDistance ? street : best;
+          });
+          appendWaypoint(waypoints, { left: start.left, top: connectorStreet });
+          appendWaypoint(waypoints, { left: pickup.left, top: connectorStreet });
         } else {
-          appendWaypoint(waypoints, { left: pickupAvenue, top: start.top });
+          const connectorAvenue = ROAD_AVENUES.reduce((best, avenue) => {
+            const bestDistance = pointDistancePx(start, { left: best, top: start.top }) +
+              pointDistancePx({ left: best, top: pickup.top }, pickup);
+            const candidateDistance = pointDistancePx(start, { left: avenue, top: start.top }) +
+              pointDistancePx({ left: avenue, top: pickup.top }, pickup);
+            return candidateDistance < bestDistance ? avenue : best;
+          });
+          appendWaypoint(waypoints, { left: connectorAvenue, top: start.top });
+          appendWaypoint(waypoints, { left: connectorAvenue, top: pickup.top });
         }
-        appendWaypoint(waypoints, { left: pickupAvenue, top: pickupStreet });
-        appendWaypoint(waypoints, { left: pickup.left, top: pickupStreet });
         appendWaypoint(waypoints, pickup);
-        return waypoints.filter((point) => (
+        const filtered = waypoints.filter((point) => (
           !nearlyEqual(point.left, start.left) || !nearlyEqual(point.top, start.top)
         ));
+        let previous = start;
+        for (const waypoint of filtered) {
+          if (!isRoadPoint(waypoint) || !isLegalRoadSegment(previous, waypoint)) {
+            throw new Error("Pickup route left the road graph");
+          }
+          previous = waypoint;
+        }
+        return filtered;
+      }
+
+      function validateRoadsidePickupGeometry() {
+        const routeSamples = DRIVER_ROUTES.flatMap((route) => (
+          route.flatMap((point, index) => {
+            const next = route[(index + 1) % route.length];
+            return [
+              point,
+              {
+                left: (point.left + next.left) / 2,
+                top: (point.top + next.top) / 2
+              }
+            ];
+          })
+        ));
+
+        RIDER_TEMPLATES.forEach((rider) => {
+          const riderPoint = projectPoint(rider.longitude, rider.latitude);
+          const pickup = roadsidePickups.get(rider.id);
+          if (!pickup || !isRoadPoint(pickup)) {
+            throw new Error(`${rider.id} roadside pickup is not on the road graph`);
+          }
+          routeSamples.forEach((start) => {
+            const waypoints = buildPickupWaypoints(start, pickup);
+            const endpoint = waypoints[waypoints.length - 1] || start;
+            if (!nearlyEqual(endpoint.left, pickup.left) || !nearlyEqual(endpoint.top, pickup.top)) {
+              throw new Error(`${rider.id} pickup route ended away from its roadside pickup`);
+            }
+            let previous = start;
+            waypoints.forEach((waypoint) => {
+              if (!isLegalRoadSegment(previous, waypoint)) {
+                throw new Error(`${rider.id} pickup route crossed a building`);
+              }
+              previous = waypoint;
+            });
+          });
+          if (isRoadPoint(riderPoint)) {
+            throw new Error(`${rider.id} rider should remain inside a building`);
+          }
+        });
       }
 
       function advanceAlongWaypoints(state, stepPx) {
@@ -2057,12 +2209,13 @@
       function startPickupRoute(riderID, driverID) {
         const driver = drivers.get(driverID);
         const rider = riders.get(riderID);
-        if (!driver || !rider) {
+        const roadsidePickup = roadsidePickups.get(riderID);
+        if (!driver || !rider || !roadsidePickup) {
           throw new Error(`Could not build pickup route for ${driverID} and ${riderID}`);
         }
 
         const start = projectPoint(driver.longitude, driver.latitude);
-        const pickup = projectPoint(rider.longitude, rider.latitude);
+        const pickup = { left: roadsidePickup.left, top: roadsidePickup.top };
         const routeState = driverRouteStates.get(driverID);
         if (routeState) {
           routeState.rejoinRoute = null;
@@ -2087,7 +2240,8 @@
           segmentTicks,
           segmentTicksRemaining: segmentTicks[0] || 0,
           ticksRemaining: segmentTicks.reduce((total, ticks) => total + ticks, 0),
-          reachedPickup: waypoints.length === 0
+          reachedPickup: waypoints.length === 0,
+          pickup
         });
       }
 
@@ -2286,11 +2440,42 @@
       }
 
       function renderRiders() {
+        elements.pickupLayer.replaceChildren();
         elements.riderLayer.replaceChildren();
         elements.riderList.replaceChildren();
         elements.activeRiderSelect.replaceChildren();
 
         RIDER_TEMPLATES.forEach((template) => {
+          const riderPoint = projectPoint(template.longitude, template.latitude);
+          const roadsidePickup = roadsidePickups.get(template.id);
+          if (!roadsidePickup) {
+            throw new Error(`Missing roadside pickup for ${template.id}`);
+          }
+
+          const connector = document.createElement("span");
+          const horizontal = nearlyEqual(riderPoint.top, roadsidePickup.top);
+          connector.className = `pickup-connector ${horizontal ? "horizontal" : "vertical"}`;
+          connector.setAttribute("aria-hidden", "true");
+          connector.style.left = `${Math.min(riderPoint.left, roadsidePickup.left)}%`;
+          connector.style.top = `${Math.min(riderPoint.top, roadsidePickup.top)}%`;
+          if (horizontal) {
+            connector.style.width = `${Math.abs(riderPoint.left - roadsidePickup.left)}%`;
+          } else {
+            connector.style.height = `${Math.abs(riderPoint.top - roadsidePickup.top)}%`;
+          }
+
+          const pickupMarker = document.createElement("span");
+          pickupMarker.className = "roadside-pickup";
+          pickupMarker.id = `pickup-${template.id}`;
+          pickupMarker.setAttribute("role", "img");
+          pickupMarker.setAttribute(
+            "aria-label",
+            `${template.short} roadside pickup nearest ${template.label}`
+          );
+          pickupMarker.style.left = `${roadsidePickup.left}%`;
+          pickupMarker.style.top = `${roadsidePickup.top}%`;
+          elements.pickupLayer.append(connector, pickupMarker);
+
           const marker = document.createElement("div");
           marker.className = "map-marker rider";
           marker.id = `pin-${template.id}`;
@@ -2306,7 +2491,7 @@
           const markerLabel = document.createElement("span");
           markerLabel.className = "marker-label";
           markerLabel.setAttribute("aria-hidden", "true");
-          markerLabel.textContent = `${template.short} · ${template.label}`;
+          markerLabel.textContent = `${template.short} · ${template.label} rider`;
           marker.append(pin, markerLabel);
           elements.riderLayer.append(marker);
 
@@ -2367,7 +2552,7 @@
       function statusLabel(status) {
         const labels = {
           en_route: "En route",
-          arriving: "At pickup",
+          arriving: "At roadside pickup",
           arrival_failed: "Arrival not confirmed",
           arrived: "Arrived",
           cancelled: "Cancelled",
@@ -2392,12 +2577,16 @@
         if (marker) {
           marker.dataset.rideStatus = status;
         }
+        const pickupMarker = document.getElementById(`pickup-${riderID}`);
+        if (pickupMarker) {
+          pickupMarker.dataset.rideStatus = status;
+        }
         if (status === "en_route") {
           state.textContent = "En route";
           return;
         }
         if (status === "arriving") {
-          state.textContent = "At pickup";
+          state.textContent = "At roadside pickup";
           return;
         }
         if (status === "arrival_failed") {
@@ -2433,9 +2622,13 @@
         for (const template of RIDER_TEMPLATES) {
           const isActive = template.id === riderID;
           const marker = document.getElementById(`pin-${template.id}`);
+          const pickupMarker = document.getElementById(`pickup-${template.id}`);
           const row = elements.riderList.querySelector(`[data-rider-id="${template.id}"]`);
           if (marker) {
             marker.classList.toggle("active-request", isActive);
+          }
+          if (pickupMarker) {
+            pickupMarker.classList.toggle("active-request", isActive);
           }
           if (row) {
             row.dataset.active = String(isActive);
@@ -2462,6 +2655,7 @@
         }
         const longitude = rider.longitude;
         const latitude = rider.latitude;
+        const roadsidePickup = roadsidePickups.get(activeRiderID);
         const validLongitude = Number.isFinite(longitude) && longitude >= -180 && longitude <= 180;
         const validLatitude = Number.isFinite(latitude) && latitude >= -90 && latitude <= 90;
 
@@ -2480,11 +2674,12 @@
           positionMarker(pickupPin, longitude, latitude);
           pickupPin.setAttribute(
             "aria-label",
-            `${rider.short} ${rider.label} pickup at longitude ${longitude.toFixed(5)}, latitude ${latitude.toFixed(5)}`
+            `${rider.short} rider location inside ${rider.label} at longitude ${longitude.toFixed(5)}, latitude ${latitude.toFixed(5)}`
           );
         }
-        elements.mapCoordinateReadout.textContent =
-          `Active ${activeRiderID} · ${longitude.toFixed(5)}, ${latitude.toFixed(5)}`;
+        elements.mapCoordinateReadout.textContent = roadsidePickup
+          ? `Active ${activeRiderID} · rider ${longitude.toFixed(5)}, ${latitude.toFixed(5)} · roadside ${roadsidePickup.longitude.toFixed(5)}, ${roadsidePickup.latitude.toFixed(5)}`
+          : `Active ${activeRiderID} · rider ${longitude.toFixed(5)}, ${latitude.toFixed(5)}`;
       }
 
       function updateDriverMarker(driver, options = {}) {
@@ -2590,11 +2785,11 @@
             detail.textContent =
               "En route · driver follows the Manhattan grid; Redis GEO distance at request time.";
           } else if (status === "arriving") {
-            detail.textContent = "At pickup · waiting for the backend to confirm arrival.";
+            detail.textContent = "At roadside pickup · waiting for the backend to confirm arrival.";
           } else if (status === "arrival_failed") {
             detail.textContent = "Arrival was not confirmed · cancellation remains available.";
           } else if (status === "arrived") {
-            detail.textContent = "Arrived · driver stopped at pickup and cancellation is closed.";
+            detail.textContent = "Arrived at roadside pickup · driver stayed on the road and cancellation is closed.";
           } else if (status === "cancelled") {
             detail.textContent = "Cancelled · rider can request again and driver is roaming.";
           } else {
@@ -2675,7 +2870,7 @@
           elements.resultKicker.textContent = "Ready";
           elements.resultPrimary.textContent = "No dispatch yet";
           elements.resultDetail.textContent =
-            "Choose a rider or launch all three pickups, then watch each driver approach.";
+            "Choose a rider or launch all three roadside pickups, then watch each driver approach.";
           elements.resultValidation.dataset.state = "idle";
           elements.resultValidation.textContent = "Unique driver check pending.";
           elements.resultRequestID.textContent = "0 requests shown";
@@ -2802,7 +2997,7 @@
           renderDispatchResults();
           addLog(
             "ARRIVE",
-            `${riders.get(riderID).short} arrived · cancellation closed`,
+            `${riders.get(riderID).short} driver reached roadside pickup · cancellation closed`,
             "success"
           );
           await refreshStats();
@@ -2819,7 +3014,8 @@
 
       function buildDispatchRequest(riderID, radius) {
         const rider = riders.get(riderID);
-        if (!rider) {
+        const roadsidePickup = roadsidePickups.get(riderID);
+        if (!rider || !roadsidePickup) {
           throw new Error(`Missing rider ${riderID}`);
         }
         const requestID = `demo-request-${riderID}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
@@ -2831,6 +3027,8 @@
             rider_id: riderID,
             longitude: rider.longitude,
             latitude: rider.latitude,
+            pickup_longitude: roadsidePickup.longitude,
+            pickup_latitude: roadsidePickup.latitude,
             radius_km: radius
           }
         };
@@ -2841,7 +3039,7 @@
         body.request_id = requestID;
         addLog(
           "HTTP",
-          `Dispatching ${rider.short} from ${rider.longitude.toFixed(4)}, ${rider.latitude.toFixed(4)}`
+          `Dispatching ${rider.short} by rider location; arrival target is the nearest roadside pickup`
         );
 
         try {
@@ -3197,7 +3395,7 @@
             elements.resetDemoButton.textContent = "Reset to known state";
             addLog(
               "DEMO",
-              "Known state ready · 8 moving drivers · 3 fixed rider pickups · live fleet feed active",
+              "Known state ready · 8 moving drivers · 3 fixed riders with roadside pickups · live fleet feed active",
               "success"
             );
           }
@@ -3619,6 +3817,7 @@
       }
 
       function initializeMap() {
+        validateRoadsidePickupGeometry();
         resetDriverRouteStates();
         renderDrivers();
         renderRiders();
@@ -3629,7 +3828,7 @@
             positionMarker(pin, rider.longitude, rider.latitude);
             pin.setAttribute(
               "aria-label",
-              `${rider.short} ${rider.label} pickup at longitude ${rider.longitude.toFixed(5)}, latitude ${rider.latitude.toFixed(5)}`
+              `${rider.short} rider location inside ${rider.label} at longitude ${rider.longitude.toFixed(5)}, latitude ${rider.latitude.toFixed(5)}`
             );
           }
         }

@@ -100,6 +100,67 @@ func TestHandleDispatchRequestWithoutRiderKeepsLegacyResponse(t *testing.T) {
 	}
 }
 
+func TestHandleDispatchRequestAcceptsPairedRoadsidePickupWithoutChangingResponse(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Redis.Close()
+	seedServerDriver(t, server, "driver-1", 0, 0)
+	pickupLongitude, pickupLatitude := 0.01, 0.0
+
+	w := postJSON(t, "/dispatch/request", DispatchRequestDTO{
+		RequestID:       "roadside-request",
+		RiderID:         "rider-1",
+		Longitude:       0,
+		Latitude:        0,
+		PickupLongitude: &pickupLongitude,
+		PickupLatitude:  &pickupLatitude,
+		RadiusKm:        2,
+	}, server.HandleDispatchRequest)
+	if w.Code != http.StatusOK {
+		t.Fatalf("dispatch status=%d body=%q", w.Code, w.Body.String())
+	}
+	var raw map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&raw); err != nil {
+		t.Fatalf("Decode response: %v", err)
+	}
+	if _, longitudeExists := raw["pickup_longitude"]; longitudeExists {
+		t.Fatalf("dispatch response unexpectedly contains pickup coordinates: %#v", raw)
+	}
+	if _, latitudeExists := raw["pickup_latitude"]; latitudeExists {
+		t.Fatalf("dispatch response unexpectedly contains pickup coordinates: %#v", raw)
+	}
+	assignment, err := server.dispatcher.GetAssignment(context.Background(), "roadside-request")
+	if err != nil {
+		t.Fatalf("GetAssignment: %v", err)
+	}
+	if assignment.PickupLongitude != pickupLongitude || assignment.PickupLatitude != pickupLatitude {
+		t.Fatalf("persisted assignment = %+v", assignment)
+	}
+}
+
+func TestHandleDispatchRequestRejectsPartialRoadsidePickup(t *testing.T) {
+	server := setupTestServer(t)
+	defer server.Redis.Close()
+	pickupLongitude, pickupLatitude := 0.01, 0.02
+
+	for name, payload := range map[string]DispatchRequestDTO{
+		"longitude only": {
+			RequestID: "request-lon", RiderID: "rider-1", Longitude: 0, Latitude: 0,
+			PickupLongitude: &pickupLongitude,
+		},
+		"latitude only": {
+			RequestID: "request-lat", RiderID: "rider-1", Longitude: 0, Latitude: 0,
+			PickupLatitude: &pickupLatitude,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := postJSON(t, "/dispatch/request", payload, server.HandleDispatchRequest)
+			if w.Code != http.StatusBadRequest {
+				t.Fatalf("status=%d body=%q", w.Code, w.Body.String())
+			}
+		})
+	}
+}
+
 func TestHandleDispatchCancelAllowsRebook(t *testing.T) {
 	server := setupTestServer(t)
 	defer server.Redis.Close()
